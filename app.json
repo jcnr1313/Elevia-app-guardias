@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "ELEVIAGuardias",
+    "slug": "mi-app-guardias",
+    "version": "1.0.0",
+    "icon": "./icon.png",
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./icon.png",
+        "backgroundColor": "#1E293B"
+      },
+      "package": "com.usuario.miappguardias"
+    }
+  }
+}
