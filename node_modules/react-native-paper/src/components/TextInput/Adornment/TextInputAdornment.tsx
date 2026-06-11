@@ -1,18 +1,22 @@
 import React from 'react';
-import TextInputIcon, { IconAdornment } from './TextInputIcon';
-import TextInputAffix, { AffixAdornment } from './TextInputAffix';
-import { ADORNMENT_OFFSET, OUTLINED_INPUT_OFFSET } from '../constants';
 import type {
   LayoutChangeEvent,
   TextStyle,
   StyleProp,
   Animated,
+  DimensionValue,
 } from 'react-native';
+
+import type { ThemeProp } from 'src/types';
+
+import { AdornmentSide, AdornmentType, InputMode } from './enums';
+import TextInputAffix, { AffixAdornment } from './TextInputAffix';
+import TextInputIcon, { IconAdornment } from './TextInputIcon';
 import type {
   AdornmentConfig,
   AdornmentStyleAdjustmentForNativeInput,
 } from './types';
-import { AdornmentSide, AdornmentType, InputMode } from './enums';
+import { getConstants } from '../helpers';
 
 export function getAdornmentConfig({
   left,
@@ -52,14 +56,18 @@ export function getAdornmentStyleAdjustmentForNativeInput({
   paddingHorizontal,
   inputOffset = 0,
   mode,
+  isV3,
 }: {
   inputOffset?: number;
   adornmentConfig: AdornmentConfig[];
   leftAffixWidth: number;
   rightAffixWidth: number;
   mode?: 'outlined' | 'flat';
-  paddingHorizontal?: number | string;
+  paddingHorizontal?: DimensionValue;
+  isV3?: boolean;
 }): AdornmentStyleAdjustmentForNativeInput | {} {
+  const { OUTLINED_INPUT_OFFSET, ADORNMENT_OFFSET } = getConstants(isV3);
+
   if (adornmentConfig.length) {
     const adornmentStyleAdjustmentForNativeInput = adornmentConfig.map(
       ({ type, side }: AdornmentConfig) => {
@@ -85,15 +93,16 @@ export function getAdornmentStyleAdjustmentForNativeInput({
         };
       }
     );
-    const allStyleAdjustmentsMerged = adornmentStyleAdjustmentForNativeInput.reduce(
-      (mergedStyles, currentStyle) => {
-        return {
-          ...mergedStyles,
-          ...currentStyle,
-        };
-      },
-      {}
-    );
+    const allStyleAdjustmentsMerged =
+      adornmentStyleAdjustmentForNativeInput.reduce(
+        (mergedStyles, currentStyle) => {
+          return {
+            ...mergedStyles,
+            ...currentStyle,
+          };
+        },
+        {}
+      );
     return allStyleAdjustmentsMerged;
   } else {
     return [{}];
@@ -122,7 +131,10 @@ export interface TextInputAdornmentProps {
   textStyle?: StyleProp<TextStyle>;
   visible?: Animated.Value;
   isTextInputFocused: boolean;
-  paddingHorizontal?: number | string;
+  paddingHorizontal?: DimensionValue;
+  maxFontSizeMultiplier?: number | undefined | null;
+  theme?: ThemeProp;
+  disabled?: boolean;
 }
 
 const TextInputAdornment: React.FunctionComponent<TextInputAdornmentProps> = ({
@@ -136,6 +148,9 @@ const TextInputAdornment: React.FunctionComponent<TextInputAdornmentProps> = ({
   isTextInputFocused,
   forceFocus,
   paddingHorizontal,
+  maxFontSizeMultiplier,
+  theme,
+  disabled,
 }) => {
   if (adornmentConfig.length) {
     return (
@@ -149,16 +164,18 @@ const TextInputAdornment: React.FunctionComponent<TextInputAdornmentProps> = ({
           }
 
           const commonProps = {
-            key: side,
             side: side,
             testID: `${side}-${type}-adornment`,
             isTextInputFocused,
             paddingHorizontal,
+            disabled,
           };
           if (type === AdornmentType.Icon) {
             return (
               <IconAdornment
                 {...commonProps}
+                theme={theme}
+                key={side}
                 icon={inputAdornmentComponent}
                 topPosition={topPosition[AdornmentType.Icon]}
                 forceFocus={forceFocus}
@@ -168,11 +185,13 @@ const TextInputAdornment: React.FunctionComponent<TextInputAdornmentProps> = ({
             return (
               <AffixAdornment
                 {...commonProps}
+                key={side}
                 topPosition={topPosition[AdornmentType.Affix][side]}
                 affix={inputAdornmentComponent}
                 textStyle={textStyle}
                 onLayout={onAffixChange[side]}
                 visible={visible}
+                maxFontSizeMultiplier={maxFontSizeMultiplier}
               />
             );
           } else {

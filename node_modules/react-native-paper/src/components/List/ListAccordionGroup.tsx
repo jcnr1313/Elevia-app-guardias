@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-type Props = {
+export type Props = {
   /**
    * Function to execute on selection change.
    */
@@ -20,18 +20,13 @@ export type ListAccordionGroupContextType = {
   onAccordionPress: (expandedId: string | number) => void;
 } | null;
 
-export const ListAccordionGroupContext = React.createContext<
-  ListAccordionGroupContextType
->(null);
+export const ListAccordionGroupContext =
+  React.createContext<ListAccordionGroupContextType>(null);
 
 /**
  * List.AccordionGroup allows to control a group of List Accordions. `id` prop for List.Accordion is required in order for group to work.
  * List.AccordionGroup can be a controlled or uncontrolled component. The example shows the uncontrolled version.
  * At most one Accordion can be expanded at a given time.
- *
- * <div class="screenshots">
- *   <img class="medium" src="screenshots/list-accordion-group.png" />
- * </div>
  *
  * ## Usage
  * ```js
