@@ -18,7 +18,7 @@ jobs:
       - name: 🏗️ Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20 # <--- Cambiado de 18 a 20 para dar soporte a .toReversed()
           cache: 'npm'
 
       - name: 📦 Instalar dependencias JS
