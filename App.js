@@ -1,316 +1,443 @@
-import React, { useState } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Text, View, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ==========================================
+// CONFIGURACIÓN DE TU SERVIDOR EN LA NUBE
+// ==========================================
+const SUPABASE_URL = "https://wzgoimvoxnnjaytmlpff.supabase.co"; 
+const SUPABASE_ANON_KEY = "sb_publishable_wqksW-E9AUDHJdVG1_VqWw_dCyBrvvZ"; 
+
+const supabaseFetch = async (endpoint, options = {}) => {
+  const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+    ...options.headers
+  };
+  
+  try {
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.message || 'Error en el servidor');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error Supabase:", error);
+    throw error;
+  }
+};
 
 export default function App() {
-  // 📆 DETECCIÓN AUTOMÁTICA DEL AÑO EN CURSO
-  const añoActual = new Date().getFullYear();
+  const anioActual = 2026;
 
   const meses = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
 
-  // 💰 ESTADOS DE IMPORTES MODIFICABLES
-  const [precioLaborable, setPrecioLaborable] = useState(28);
-  const [precioFestivoFinde, setPrecioFestivoFinde] = useState(70);
+  // Tarifas de guardia editables
+  const [precioLaborable, setPrecioLaborable] = useState('28');
+  const [precioFestivoFinde, setPrecioFestivoFinde] = useState('70');
 
-  // Base de datos de usuarios (Dinámica)
-  const [usuariosDB, setUsuariosDB] = useState([
-    { id: '1', nombre: 'Juan Carlos', user: 'Juan Carlos', pass: 'jc01', rol: 'empleado', color: '#EF4444', activo: true },
-    { id: '2', nombre: 'Lucas', user: 'Lucas', pass: 'Lucas06', rol: 'empleado', color: '#10B981', activo: true },
-    { id: '3', nombre: 'Óscar Idañez', user: 'Óscar Idañez', pass: 'Idañez07', rol: 'empleado', color: '#3B82F6', activo: true },
-    { id: '4', nombre: 'Óscar Ibarreta', user: 'Óscar Ibarreta', pass: 'Ibarreta08', rol: 'empleado', color: '#F59E0B', activo: true },
-    { id: 'admin1', nombre: 'Responsable Técnico (Friti)', user: 'Friti', pass: 'friti43', rol: 'admin', color: '#475569', activo: true },
-    { id: 'admin2', nombre: 'Responsable Técnico (Toni)', user: 'Toni', pass: 'tonaxo45', rol: 'admin', color: '#475569', activo: true },
-    { id: 'admin3', nombre: 'Responsable Técnico (Carmen)', user: 'Carmen', pass: 'carmen62', rol: 'admin', color: '#475569', activo: true }
-  ]);
+  // Estados Globales
+  const [usuariosDB, setUsuariosDB] = useState([]);
+  const [peticiones, setPeticiones] = useState([]);
+  const [cargandoDatosGlobales, setCargandoDatosGlobales] = useState(true);
 
-  // Formulario para registrar un NUEVO Técnico en el sistema
+  // Estados altas técnico
   const [nuevoNombreTecnico, setNuevoNombreTecnico] = useState('');
   const [nuevoUserTecnico, setNuevoUserTecnico] = useState('');
   const [nuevoPassTecnico, setNuevoPassTecnico] = useState('');
-  const [nuevoColorTecnico, setNuevoColorTecnico] = useState('#8B5CF6'); // Violeta por defecto
+  const [nuevoColorTecnico, setNuevoColorTecnico] = useState('#8B5CF6');
+  const [nuevosDiasTotales, setNuevosDiasTotales] = useState('30');
 
-  // 🦇 Festivos de Valencia oficiales
+  // Estados solicitudes empleado
+  const [empFechaInicio, setEmpFechaInicio] = useState('');
+  const [empFechaFin, setEmpFechaFin] = useState('');
+  const [empTipoAusencia, setEmpTipoAusencia] = useState('Vacaciones');
+
+  // Estados control admin
+  const [idSeleccionadoModificar, setIdSeleccionadoModificar] = useState('');
+  const [nuevoUserAdmin, setNuevoUserAdmin] = useState('');
+  const [nuevoPassAdmin, setNuevoPassAdmin] = useState('');
+  const [diasTotalesAdmin, setDiasTotalesAdmin] = useState('30');
+  const [adminTipoVacacion, setAdminTipoVacacion] = useState('Vacaciones');
+  const [adminFechaInicio, setAdminFechaInicio] = useState('');
+  const [adminFechaFin, setAdminFechaFin] = useState('');
+
+  const [guardiasAnuales, setGuardiasAnuales] = useState({});
+  const [usuarioLogueado, setUsuarioLogueado] = useState(null); 
+  const [inputUsuario, setInputUsuario] = useState('');
+  const [inputContraseña, setInputContraseña] = useState('');
+  const [mesActual, setMesActual] = useState(new Date().getMonth()); 
+
+  // ==========================================================
+  // CALENDARIO DE FESTIVOS VALENCIA / ESPAÑA 2026
+  // ==========================================================
   const festivosBase = {
     '01-01': { nombre: 'Año Nuevo', tipo: 'Nacional', icono: '🇪🇸' },
-    '01-06': { nombre: 'Reyes', tipo: 'Nacional', icono: '🇪🇸' },
-    '01-22': { nombre: 'S. Vicente M.', tipo: 'Local', icono: '📍' },
-    '03-19': { nombre: 'San José', tipo: 'Autonómico', icono: '🦇' },
+    '01-06': { nombre: 'Reyes Magos', tipo: 'Nacional', icono: '🇪🇸' },
+    '01-22': { nombre: 'San Vicente Mártir', tipo: 'Local Valencia', icono: '🦇' },
+    '03-19': { nombre: 'San José', tipo: 'Autonómico', icono: '🔥' }, 
+    '04-02': { nombre: 'Jueves Santo', tipo: 'Nacional', icono: '🇪🇸' },
+    '04-03': { nombre: 'Viernes Santo', tipo: 'Nacional', icono: '🇪🇸' },
+    '04-06': { nombre: 'Lunes de Pascua', tipo: 'Autonómico', icono: '🍊' },
     '05-01': { nombre: 'Trabajador', tipo: 'Nacional', icono: '🇪🇸' },
-    '06-24': { nombre: 'San Juan', tipo: 'Autonómico', icono: '🦇' },
-    '08-15': { nombre: 'Asunción', tipo: 'Nacional', icono: '🇪🇸' },
-    '10-09': { nombre: 'Día CV', tipo: 'Autonómico', icono: '🦇' },
-    '10-12': { nombre: 'Hispanidad', tipo: 'Nacional', icono: '🇪🇸' },
-    '11-01': { todos: 'Todos los Santos', tipo: 'Nacional', icono: '🇪🇸' },
-    '12-08': { nombre: 'Inmaculada', tipo: 'Nacional', icono: '🇪🇸' },
+    '06-24': { nombre: 'San Juan', tipo: 'Autonómico', icono: '🍊' },
+    '08-15': { nombre: 'Asunción de la Virgen', tipo: 'Nacional', icono: '🇪🇸' },
+    '10-09': { nombre: 'Día de la Comunidad Valenciana', tipo: 'Autonómico', icono: '🍊' },
+    '10-12': { nombre: 'Fiesta Nacional de España', tipo: 'Nacional', icono: '🇪🇸' },
+    '11-01': { nombre: 'Todos los Santos', tipo: 'Nacional', icono: '🇪🇸' },
+    '12-06': { nombre: 'Día de la Constitución', tipo: 'Nacional', icono: '🇪🇸' },
+    '12-08': { nombre: 'Inmaculada Concepción', tipo: 'Nacional', icono: '🇪🇸' },
     '12-25': { nombre: 'Navidad', tipo: 'Nacional', icono: '🇪🇸' }
   };
 
-  const festivosDelAño = {};
+  const festivosDelAnio = {};
   Object.keys(festivosBase).forEach(mesDia => {
-    festivosDelAño[`${añoActual}-${mesDia}`] = festivosBase[mesDia];
+    festivosDelAnio[`${anioActual}-${mesDia}`] = festivosBase[mesDia];
   });
 
-  // ⚙️ MOTOR DE ASIGNACIÓN ANUAL COMPLETA (Lee los técnicos activos dinámicamente)
-  const generarCalendarioAnual = (forzarAleatorioCompleto = false, listaUsuariosModerna = usuariosDB) => {
+  const calcularDiasEntreFechas = (inicioStr, finStr) => {
+    const fin = new Date(finStr);
+    const inicio = new Date(inicioStr);
+    if (isNaN(fin) || isNaN(inicio) || fin < inicio) return 0;
+    const diffTime = Math.abs(fin - inicio);
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  const comprobarSiEstaDeVacaciones = (fechaISO, tecnicoId, listaPeticiones = peticiones) => {
+    const fechaActual = new Date(fechaISO);
+    return listaPeticiones.some(p => {
+      if (p.tecnicoId === tecnicoId && p.estado === 'Aprobado') {
+        const dInicio = new Date(p.inicio);
+        const dFin = new Date(p.fin);
+        return fechaActual >= dInicio && fechaActual <= dFin;
+      }
+      return false;
+    });
+  };
+
+  const calcularImporteMensualGuardia = (username, mesInd) => {
+    let totalAcumulado = 0;
+    let diasLaborables = 0;
+    let diasFestivosFinde = 0;
+
+    const numDias = new Date(anioActual, mesInd + 1, 0).getDate();
+    for (let dia = 1; dia <= numDias; dia++) {
+      const mesStr = String(mesInd + 1).padStart(2, '0');
+      const diaStr = String(dia).padStart(2, '0');
+      const fechaClave = `${anioActual}-${mesStr}-${diaStr}`;
+      
+      if (guardiasAnuales[fechaClave] === username) {
+        const deVacaciones = comprobarSiEstaDeVacaciones(fechaClave, username, peticiones);
+        if (!deVacaciones) {
+          const fechaObj = new Date(anioActual, mesInd, dia);
+          const esFinde = fechaObj.getDay() === 0 || fechaObj.getDay() === 6;
+          const esFestivo = !!festivosDelAnio[fechaClave];
+
+          if (esFinde || esFestivo) {
+            totalAcumulado += parseInt(precioFestivoFinde) || 70;
+            diasFestivosFinde++;
+          } else {
+            totalAcumulado += parseInt(precioLaborable) || 28;
+            diasLaborables++;
+          }
+        }
+      }
+    }
+    return { totalAcumulado, diasLaborables, diasFestivosFinde };
+  };
+
+  // =========================================================================
+  // 🔄 NUEVO ALGORITMO: GENERACIÓN INTELIGENTE EQUITATIVA DE FESTIVOS
+  // =========================================================================
+  const generarCalendarioInteligenteEquitativo = () => {
     let nuevoCuadrante = {};
-    let fechaBucle = new Date(añoActual, 0, 1);
-    
-    // Filtramos solo los empleados que existen en el momento de generar
-    const idsEmpleados = listaUsuariosModerna.filter(u => u.rol === 'empleado' && u.activo).map(u => u.id);
-    
-    if (idsEmpleados.length === 0) return {};
+    const listaTecnicos = usuariosDB.filter(u => u.activo);
+    if (listaTecnicos.length === 0) return;
 
-    let indiceOrden = 0;
-    let poolAleatorioSemanal = [...idsEmpleados].sort(() => Math.random() - 0.5);
+    // Inicializamos el contador de festivos/fines de semana realizados por cada técnico
+    let contadorFestivos = {};
+    listaTecnicos.forEach(t => {
+      contadorFestivos[t.usuario] = 0;
+    });
 
-    // Configuración por defecto original (parche junio para los 4 iniciales)
-    const ordenEstrictoJunio = idsEmpleados.includes('1') ? ['1', '4', '2', '3'] : idsEmpleados;
-    const fechaPivoteStricta = new Date(añoActual, 5, 19);
+    // Pauta de rotación normal de base secuencial de técnicos para días laborables
+    let indiceRotacionNormal = 0;
 
-    while (fechaBucle.getFullYear() === añoActual) {
-      const a = fechaBucle.getFullYear();
-      const m = String(fechaBucle.getMonth() + 1).padStart(2, '0');
-      const d = String(fechaBucle.getDate()).padStart(2, '0');
-      const isoKey = `${a}-${m}-${d}`;
-      const diaSemana = fechaBucle.getDay(); 
+    let fechaBucle = new Date(anioActual, 0, 1);
+    while (fechaBucle.getFullYear() === anioActual) {
+      const currentMes = fechaBucle.getMonth();
+      const currentDia = fechaBucle.getDate();
+      
+      const m = String(currentMes + 1).padStart(2, '0');
+      const d = String(currentDia).padStart(2, '0');
+      const isoKey = `${anioActual}-${m}-${d}`;
 
-      if (forzarAleatorioCompleto) {
-        // Rotación semanal pura los jueves para incluir a todos los técnicos (viejos y nuevos)
-        if (diaSemana === 4 && isoKey !== `${añoActual}-01-01`) {
-          poolAleatorioSemanal = [...idsEmpleados].sort(() => Math.random() - 0.5);
-          indiceOrden = (indiceOrden + 1) % idsEmpleados.length;
+      const esFinde = fechaBucle.getDay() === 0 || fechaBucle.getDay() === 6;
+      const esFestivoOca = !!festivosDelAnio[isoKey];
+
+      if (esFinde || esFestivoOca) {
+        // REPARTO EQUITATIVO: Buscamos qué técnico lleva MENOS festivos acumulados hasta el momento
+        let tecnicoElegido = listaTecnicos[0].usuario;
+        let minFestivos = contadorFestivos[tecnicoElegido];
+
+        for (let i = 1; i < listaTecnicos.length; i++) {
+          const uId = listaTecnicos[i].usuario;
+          if (contadorFestivos[uId] < minFestivos) {
+            minFestivos = contadorFestivos[uId];
+            tecnicoElegido = uId;
+          }
         }
-        nuevoCuadrante[isoKey] = poolAleatorioSemanal[indiceOrden % poolAleatorioSemanal.length];
+
+        nuevoCuadrante[isoKey] = tecnicoElegido;
+        contadorFestivos[tecnicoElegido] += 1; // Sumamos el festivo realizado al contador
       } else {
-        if (fechaBucle < fechaPivoteStricta) {
-          if (fechaBucle.getDate() !== 1 && diaSemana === 5) {
-            indiceOrden = (indiceOrden + 1) % idsEmpleados.length;
-          }
-          nuevoCuadrante[isoKey] = idsEmpleados[indiceOrden % idsEmpleados.length];
-        } else {
-          if (fechaBucle.getTime() === fechaPivoteStricta.getTime()) {
-            indiceOrden = 0;
-          } else if (diaSemana === 4) {
-            indiceOrden = (indiceOrden + 1) % ordenEstrictoJunio.length;
-          }
-          nuevoCuadrante[isoKey] = ordenEstrictoJunio[indiceOrden % ordenEstrictoJunio.length];
-        }
+        // Día laborable estándar: Sigue la cola secuencial normal para no sobrecargar
+        const tecNormal = listaTecnicos[indiceRotacionNormal % listaTecnicos.length].usuario;
+        nuevoCuadrante[isoKey] = tecNormal;
+        indiceRotacionNormal++;
+      }
+
+      fechaBucle.setDate(fechaBucle.getDate() + 1);
+    }
+
+    setGuardiasAnuales(nuevoCuadrante);
+    Alert.alert("Cuadrante Optimizado", "Se han redistribuido las guardias equilibrando matemáticamente los festivos.");
+  };
+
+  const generarCalendarioAnualBase = (listaUsuariosModerna = usuariosDB) => {
+    let nuevoCuadrante = {};
+    let fechaBucle = new Date(anioActual, 0, 1);
+    
+    // Lista secuencial básica por defecto si no se optimiza
+    while (fechaBucle.getFullYear() === anioActual) {
+      const currentMes = fechaBucle.getMonth();
+      const currentDia = fechaBucle.getDate();
+      const m = String(currentMes + 1).padStart(2, '0');
+      const d = String(currentDia).padStart(2, '0');
+      const isoKey = `${anioActual}-${m}-${d}`;
+
+      // Por defecto asignamos rotativamente o un valor base seguro
+      const totalTecs = listaUsuariosModerna.filter(u => u.rol === 'empleado');
+      if (totalTecs.length > 0) {
+        const index = currentDia % totalTecs.length;
+        nuevoCuadrante[isoKey] = totalTecs[index].usuario;
+      } else {
+        nuevoCuadrante[isoKey] = 'J.Carlos';
       }
       fechaBucle.setDate(fechaBucle.getDate() + 1);
     }
     return nuevoCuadrante;
   };
 
-  const [guardiasAnuales, setGuardiasAnuales] = useState(() => generarCalendarioAnual(false));
+  const calcularContadoresVacaciones = (username, listaUsuarios = usuariosDB, listaPeticiones = peticiones) => {
+    const usuario = listaUsuarios.find(u => u.usuario === username);
+    const totales = usuario ? Number(usuario.dias_totales || 30) : 30;
+    
+    const disfrutados = listaPeticiones
+      .filter(p => p.tecnicoId === username && p.estado === 'Aprobado')
+      .reduce((sum, p) => sum + calcularDiasEntreFechas(p.inicio, p.fin), 0);
 
-  // Estados de sesión, Login y Calendario
-  const [usuarioLogueado, setUsuarioLogueado] = useState(null); 
-  const [inputUsuario, setInputUsuario] = useState('');
-  const [inputContraseña, setInputContraseña] = useState('');
-  const [mesActual, setMesActual] = useState(new Date().getMonth()); 
+    return { totales, disfrutados, restantes: totales - disfrutados };
+  };
 
-  // Reemplazos Masivos y Formularios Vacaciones / Días libres
-  const [idSaliente, setIdSaliente] = useState('1');
-  const [idEntrante, setIdEntrante] = useState('2');
-  const [fechaEfectiva, setFechaEfectiva] = useState('');
-  const [fechaInicio, setFechaInicio] = useState('');
-  const [fechaFin, setFechaFin] = useState('');
-  const [tipoTramiteSeleccionado, setTipoTramiteSeleccionado] = useState('Vacaciones'); 
+  const cargarDatosDesdeServidor = async () => {
+    try {
+      setCargandoDatosGlobales(true);
+      const datosUsuarios = await supabaseFetch('usuarios?select=*');
+      setUsuariosDB(datosUsuarios);
+      
+      let datosVacaciones = [];
+      try {
+        datosVacaciones = await supabaseFetch('vacaciones?select=*');
+        setPeticiones(datosVacaciones);
+      } catch (errVac) {
+        console.log("Aviso: Tabla vacaciones vacía.");
+      }
 
-  // Listado global de peticiones / Vacaciones activas
-  const [peticiones, setPeticiones] = useState([
-    { id: '101', tecnicoId: '2', nombre: 'Lucas', tipo: 'Vacaciones', inicio: `${añoActual}-06-12`, fin: `${añoActual}-06-19`, estado: 'Pendiente' },
-    { id: '102', tecnicoId: '3', nombre: 'Óscar Idañez', tipo: 'Día Libre', inicio: `${añoActual}-07-05`, fin: `${añoActual}-07-05`, estado: 'Pendiente' },
-    { id: '103', tecnicoId: '4', nombre: 'Óscar Ibarreta', tipo: 'Vacaciones', inicio: `${añoActual}-08-10`, fin: `${añoActual}-08-17`, estado: 'Aprobado' }
-  ]);
+      const calendarioInicial = generarCalendarioAnualBase(datosUsuarios);
+      setGuardiasAnuales(calendarioInicial);
 
-  // Edición de Credenciales y Vacaciones por el Admin
-  const [idSeleccionadoModificar, setIdSeleccionadoModificar] = useState('1');
-  const [nuevoUserAdmin, setNuevoUserAdmin] = useState('Juan Carlos');
-  const [nuevoPassAdmin, setNuevoPassAdmin] = useState('jc01');
-  
-  // Nuevos campos para que el admin fuerce vacaciones directas
-  const [adminTipoVacacion, setAdminTipoVacacion] = useState('Vacaciones');
-  const [adminFechaInicio, setAdminFechaInicio] = useState('');
-  const [adminFechaFin, setAdminFechaFin] = useState('');
+      const datosSesionLocal = await AsyncStorage.getItem('@sesion_guardia_v2');
+      if (datosSesionLocal) {
+        const sesionParseada = JSON.parse(datosSesionLocal);
+        const fresco = datosUsuarios.find(u => u.usuario === sesionParseada.usuario);
+        setUsuarioLogueado(fresco || sesionParseada);
+      }
+    } catch (e) {
+      Alert.alert("Error de Sincronización", "Error al descargar datos de Supabase.");
+    } finally {
+      setCargandoDatosGlobales(false);
+    }
+  };
 
-  // 📝 DAR DE ALTA UN NUEVO TÉCNICO EN LA APLICACIÓN
-  const registrarNuevoTecnico = () => {
-    if (!nuevoNombreTecnico.trim() || !nuevoUserTecnico.trim() || !nuevoPassTecnico.trim()) {
-      Alert.alert('Campos Incompletos', 'Por favor, rellena el nombre, usuario y clave del nuevo integrante.');
+  useEffect(() => {
+    cargarDatosDesdeServidor();
+  }, []);
+
+  const solicitarDiasEmpleado = async () => {
+    if (!empFechaInicio.trim() || !empFechaFin.trim()) {
+      Alert.alert("Campos Vacíos", "Especifica la fecha de inicio y fin (AAAA-MM-DD).");
       return;
     }
 
-    const nuevoId = Date.now().toString();
+    const nuevaPeticion = {
+      tecnicoId: usuarioLogueado.usuario,
+      nombre: usuarioLogueado.nombre,
+      tipo: empTipoAusencia,
+      inicio: empFechaInicio.trim(),
+      fin: empFechaFin.trim(),
+      estado: 'Pendiente'
+    };
+
+    try {
+      await supabaseFetch('vacaciones', { method: 'POST', body: JSON.stringify(nuevaPeticion) });
+      Alert.alert("Solicitud Enviada", "Tu petición ha sido enviada al Administrador.");
+      setEmpFechaInicio('');
+      setEmpFechaFin('');
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert("Error de Envío", "No se pudo conectar con el servidor.");
+    }
+  };
+
+  const registrarNuevoTecnico = async () => {
+    if (!nuevoNombreTecnico.trim() || !nuevoUserTecnico.trim() || !nuevoPassTecnico.trim()) {
+      Alert.alert('Campos Incompletos', 'Completa los datos del nuevo técnico.');
+      return;
+    }
+
     const nuevoObjetoTecnico = {
-      id: nuevoId,
       nombre: nuevoNombreTecnico.trim(),
-      user: nuevoUserTecnico.trim(),
+      usuario: nuevoUserTecnico.trim(),
       pass: nuevoPassTecnico.trim(),
       rol: 'empleado',
       color: nuevoColorTecnico,
-      activo: true
+      activo: true,
+      dias_totales: parseInt(nuevosDiasTotales) || 30
     };
 
-    const listaActualizada = [...usuariosDB, nuevoObjetoTecnico];
-    setUsuariosDB(listaActualizada);
-
-    // Reseteamos campos
-    setNuevoNombreTecnico('');
-    setNuevoUserTecnico('');
-    setNuevoPassTecnico('');
-    
-    Alert.alert(
-      '¡Técnico Creado!', 
-      `El usuario "${nuevoObjetoTecnico.user}" ha sido añadido. Si deseas incluirlo en el cuadrante general de este año, pulsa abajo el botón de "Regenerar Cuadrante Aleatorio".`
-    );
-  };
-
-  // Cambiar técnico en admin y rellenar sus datos reales
-  const seleccionarTecnicoParaModificar = (id) => {
-    setIdSeleccionadoModificar(id);
-    const empleado = usuariosDB.find(u => u.id === id);
-    if (empleado) {
-      setNuevoUserAdmin(empleado.user);
-      setNuevoPassAdmin(empleado.pass);
+    try {
+      await supabaseFetch('usuarios', { method: 'POST', body: JSON.stringify(nuevoObjetoTecnico) });
+      Alert.alert('¡Éxito!', `El técnico se ha guardado en el servidor.`);
+      cargarDatosDesdeServidor();
+      setNuevoNombreTecnico('');
+      setNuevoUserTecnico('');
+      setNuevoPassTecnico('');
+    } catch (error) {
+      Alert.alert("Error", "No se pudo añadir al usuario.");
     }
   };
 
-  // 📐 MODIFICAR/CREAR VACACIONES DIRECTAMENTE DESDE EL ADMIN
-  const asignarVacacionDirectaAdmin = () => {
-    if (!adminFechaInicio.trim() || !adminFechaFin.trim()) {
-      Alert.alert('Error', 'Debes rellenar las fechas de inicio y fin.');
+  const aplicarChangeCredenciales = async () => {
+    if (!idSeleccionadoModificar) {
+      Alert.alert('Error', 'Selecciona un técnico primero.');
       return;
     }
-    const empleado = usuariosDB.find(u => u.id === idSeleccionadoModificar);
+    try {
+      await supabaseFetch(`usuarios?usuario=eq.${idSeleccionadoModificar}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          usuario: nuevoUserAdmin.trim(),
+          pass: nuevoPassAdmin.trim(),
+          dias_totales: parseInt(diasTotalesAdmin) || 30
+        })
+      });
+      Alert.alert('Éxito', 'Perfil técnico actualizado.');
+      cargarDatosDesdeServidor();
+    } catch (error) {
+      Alert.alert("Error", "No se pudo guardar la actualización.");
+    }
+  };
+
+  const iniciarSesion = async () => {
+    const userClean = inputUsuario.toLowerCase().trim();
+    const passClean = inputContraseña.trim(); 
+    
+    const usuarioEncontrado = usuariosDB.find(u => {
+      const dbUser = u.usuario ? u.usuario.toLowerCase().trim() : '';
+      const dbPass = u.pass ? u.pass.trim() : ''; 
+      return dbUser === userClean && dbPass === passClean;
+    });
+    
+    if (usuarioEncontrado) {
+      setUsuarioLogueado(usuarioEncontrado);
+      await AsyncStorage.setItem('@sesion_guardia_v2', JSON.stringify(usuarioEncontrado));
+      setInputUsuario('');
+      setInputContraseña('');
+      if (usuarioEncontrado.rol === 'admin') {
+        const primerEmp = usuariosDB.find(u => u.rol === 'empleado');
+        if (primerEmp) seleccionarTecnicoParaModificar(primerEmp.usuario, usuariosDB);
+      }
+    } else {
+      Alert.alert('Acceso Denegado', 'Credenciales incorrectas.');
+    }
+  };
+
+  const cerrarSesion = async () => {
+    await AsyncStorage.removeItem('@sesion_guardia_v2');
+    setUsuarioLogueado(null);
+  };
+
+  const seleccionarTecnicoParaModificar = (id, listaActora = usuariosDB) => {
+    setIdSeleccionadoModificar(id);
+    const empleado = listaActora.find(u => u.usuario === id);
+    if (empleado) {
+      setNuevoUserAdmin(empleado.usuario);
+      setNuevoPassAdmin(empleado.pass);
+      setDiasTotalesAdmin(String(empleado.dias_totales || 30));
+    }
+  };
+
+  const asignarVacacionDirectaAdmin = async () => {
+    if (!adminFechaInicio.trim() || !adminFechaFin.trim()) {
+      Alert.alert('Error', 'Introduce las fechas correctas.');
+      return;
+    }
+    const empleado = usuariosDB.find(u => u.usuario === idSeleccionadoModificar);
     const nuevaAusencia = {
-      id: Date.now().toString(),
       tecnicoId: idSeleccionadoModificar,
       nombre: empleado ? empleado.nombre : 'Técnico',
       tipo: adminTipoVacacion,
       inicio: adminFechaInicio.trim(),
       fin: adminFechaFin.trim(),
-      estado: 'Aprobado'
+      estado: 'Aprobado' 
     };
 
-    setPeticiones([...peticiones, nuevaAusencia]);
-    setAdminFechaInicio('');
-    setAdminFechaFin('');
-    Alert.alert('Éxito', `Periodo de ${adminTipoVacacion} asignado correctamente.`);
-  };
-
-  // 🗑️ ELIMINAR O QUITAR VACACIONES DESDE EL PANEL DE ADMIN
-  const eliminarVacacionAdmin = (idVacacion) => {
-    Alert.alert(
-      'Eliminar Ausencia',
-      '¿Estás seguro de que deseas eliminar este registro de vacaciones/días libres?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Eliminar', style: 'destructive', onPress: () => {
-          setPeticiones(peticiones.filter(p => p.id !== idVacacion));
-        }}
-      ]
-    );
-  };
-
-  // 🎲 DISPARADOR DE MEZCLA Y REGENERACIÓN COMPLETA
-  const handleRegenerarAleatorioAnual = () => {
-    Alert.alert(
-      '🎲 Repartir Guardias del Año',
-      '¿Seguro que deseas redistribuir las guardias? Se incluirán todos los técnicos activos actuales (antiguos y nuevos incorporados).',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Sí, mezclar año', onPress: () => {
-          const nuevoMix = generarCalendarioAnual(true, usuariosDB);
-          setGuardiasAnuales(nuevoMix);
-          Alert.alert('Éxito', 'Se ha recalculado el cuadrante anual con la plantilla actual.');
-        }}
-      ]
-    );
-  };
-
-  // Calcular importe de la semana actual
-  const calcularInformacionSemanaActual = () => {
-    const hoy = new Date();
-    const diaDeLaSemana = hoy.getDay();
-    
-    const distanciaAlJueves = (diaDeLaSemana >= 4) ? (diaDeLaSemana - 4) : (diaDeLaSemana + 3);
-    const juevesInicio = new Date(hoy);
-    juevesInicio.setDate(hoy.getDate() - distanciaAlJueves);
-
-    let totalSemana = 0;
-    let tecnicoIdSemana = null;
-
-    for (let i = 0; i < 7; i++) {
-      const iteracion = new Date(juevesInicio);
-      iteracion.setDate(juevesInicio.getDate() + i);
-      
-      const a = iteracion.getFullYear();
-      const m = String(iteracion.getMonth() + 1).padStart(2, '0');
-      const d = String(iteracion.getDate()).padStart(2, '0');
-      const clave = `${a}-${m}-${d}`;
-
-      if (i === 0) {
-        tecnicoIdSemana = guardiasAnuales[clave];
-      }
-
-      const dSemana = iteracion.getDay();
-      const esFinDeSemana = (dSemana === 0 || dSemana === 6);
-      const infoFestivo = festivosDelAño[clave];
-      const esFestivo = infoFestivo && (infoFestivo.tipo === 'Nacional' || infoFestivo.tipo === 'Autonómico');
-
-      if (esFinDeSemana || esFestivo) {
-        totalSemana += Number(precioFestivoFinde);
-      } else {
-        totalSemana += Number(precioLaborable);
-      }
+    try {
+      await supabaseFetch('vacaciones', { method: 'POST', body: JSON.stringify(nuevaAusencia) });
+      Alert.alert('Éxito', `Ausencia aprobada directamente.`);
+      setAdminFechaInicio('');
+      setAdminFechaFin('');
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo guardar la fila.');
     }
-
-    const empleadoData = usuariosDB.find(u => u.id === tecnicoIdSemana);
-    return {
-      nombre: empleadoData ? empleadoData.nombre : 'Sin Asignar',
-      coste: totalSemana
-    };
   };
 
-  const infoSemanaAdmin = calcularInformacionSemanaActual();
-
-  const calcularNominasDelMes = (mes) => {
-    const numDias = new Date(añoActual, mes + 1, 0).getDate();
-    let resumen = {};
-    usuariosDB.forEach(u => { if(u.rol === 'empleado') resumen[u.id] = 0; });
-
-    for (let dia = 1; dia <= numDias; dia++) {
-      const mesStr = String(mes + 1).padStart(2, '0');
-      const diaStr = String(dia).padStart(2, '0');
-      const fechaClave = `${añoActual}-${mesStr}-${diaStr}`;
-      const idAsignada = guardiasAnuales[fechaClave];
-      
-      if (idAsignada && resumen[idAsignada] !== undefined) {
-        const fechaObj = new Date(añoActual, mes, dia);
-        const diaSemana = fechaObj.getDay();
-        const esFinDeSemana = (diaSemana === 0 || diaSemana === 6);
-        const infoFestivo = festivosDelAño[fechaClave];
-        const esFestivoOficial = infoFestivo && (infoFestivo.tipo === 'Nacional' || infoFestivo.tipo === 'Autonómico');
-
-        if (esFinDeSemana || esFestivoOficial) {
-          resumen[idAsignada] += Number(precioFestivoFinde);
-        } else {
-          resumen[idAsignada] += Number(precioLaborable);
-        }
-      }
+  const resolverPeticion = async (id, nuevoEstado) => {
+    try {
+      await supabaseFetch(`vacaciones?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: nuevoEstado })
+      });
+      Alert.alert('Procesado', `Solicitud marcada como: ${nuevoEstado}`);
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo actualizar la petición.');
     }
-    return resumen;
   };
-
-  const nominasMesActual = calcularNominasDelMes(mesActual);
 
   const obtenerDiasMes = (mes) => {
-    const primerDia = new Date(añoActual, mes, 1).getDay();
+    const primerDia = new Date(anioActual, mes, 1).getDay();
     const diasEnBlanco = primerDia === 0 ? 6 : primerDia - 1;
-    const numDias = new Date(añoActual, mes + 1, 0).getDate();
+    const numDias = new Date(anioActual, mes + 1, 0).getDate();
 
     let celdas = [];
     for (let i = 0; i < diasEnBlanco; i++) {
@@ -319,8 +446,8 @@ export default function App() {
     for (let dia = 1; dia <= numDias; dia++) {
       const mesStr = String(mes + 1).padStart(2, '0');
       const diaStr = String(dia).padStart(2, '0');
-      const fechaClave = `${añoActual}-${mesStr}-${diaStr}`;
-      const fechaObj = new Date(añoActual, mes, dia);
+      const fechaClave = `${anioActual}-${mesStr}-${diaStr}`;
+      const fechaObj = new Date(anioActual, mes, dia);
       celdas.push({ tipo: 'dia', dia, fechaClave, esFinde: fechaObj.getDay() === 0 || fechaObj.getDay() === 6 });
     }
     return celdas;
@@ -328,119 +455,50 @@ export default function App() {
 
   const celdasCalendario = obtenerDiasMes(mesActual);
 
-  const iniciarSesion = () => {
-    const userClean = inputUsuario.toLowerCase().trim();
-    const usuarioEncontrado = usuariosDB.find(
-      u => u.user.toLowerCase() === userClean && u.pass === inputContraseña
-    );
-    if (usuarioEncontrado) {
-      setUsuarioLogueado(usuarioEncontrado);
-      setInputUsuario('');
-      setInputContraseña('');
-    } else {
-      Alert.alert('Acceso Denegado', 'Usuario o contraseña incorrectos.');
-    }
-  };
-
-  const cerrarSesion = () => setUsuarioLogueado(null);
-
-  const aplicarCambioCredenciales = () => {
-    if (!nuevoUserAdmin.trim() || !nuevoPassAdmin.trim()) {
-      Alert.alert('Error', 'Introduce campos válidos.');
-      return;
-    }
-    setUsuariosDB(usuariosDB.map(u => {
-      if (u.id === idSeleccionadoModificar) {
-        return { ...u, user: nuevoUserAdmin.trim(), pass: nuevoPassAdmin.trim() };
-      }
-      return u;
-    }));
-    Alert.alert('Éxito', 'Credenciales modificadas correctamente.');
-  };
-
-  const enviarSolicitud = () => {
-    if (!fechaInicio || !fechaFin) {
-      Alert.alert('Error', 'Completa las fechas.');
-      return;
-    }
-    const nuevaPeticion = {
-      id: Date.now().toString(),
-      tecnicoId: usuarioLogueado.id,
-      nombre: usuarioLogueado.nombre, 
-      tipo: tipoTramiteSeleccionado,
-      inicio: fechaInicio,
-      fin: fechaFin,
-      estado: 'Pendiente'
-    };
-    setPeticiones([...peticiones, nuevaPeticion]);
-    Alert.alert('Éxito', 'Solicitud enviada al Responsable.');
-    setFechaInicio('');
-    setFechaFin('');
-  };
-
-  const resolverPeticion = (id, nuevoEstado) => {
-    setPeticiones(peticiones.map(p => p.id === id ? { ...p, estado: nuevoEstado } : p));
-    Alert.alert('Estado Actualizado', `Marcada como: ${nuevoEstado}`);
-  };
-
-  const ejecutarReemplazoMasivo = () => {
-    const regexFecha = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regexFecha.test(fechaEfectiva)) {
-      Alert.alert('Formato Incorrecto', 'Usa AAAA-MM-DD.');
-      return;
-    }
-    const copiaGuardias = { ...guardiasAnuales };
-    const [rA, rM, rD] = fechaEfectiva.split('-').map(Number);
-    const limiteFecha = new Date(rA, rM - 1, rD);
-
-    Object.keys(copiaGuardias).forEach((fechaKey) => {
-      const [kA, kM, kD] = fechaKey.split('-').map(Number);
-      const fechaActual = new Date(kA, kM - 1, kD);
-      if (fechaActual >= limiteFecha && copiaGuardias[fechaKey] === idSaliente) {
-        copiaGuardias[fechaKey] = idEntrante;
-      }
-    });
-
-    setGuardiasAnuales(copiaGuardias);
-    Alert.alert('Reemplazo Completado', `Se transfirieron las guardias.`);
-    setFechaEfectiva('');
-  };
-
   const cambiarMes = (direccion) => {
     if (direccion === 'ant' && mesActual > 0) setMesActual(mesActual - 1);
     if (direccion === 'sig' && mesActual < 11) setMesActual(mesActual + 1);
   };
 
-  // VISTA 1: LOGIN
+  if (cargandoDatosGlobales) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1E293B' }}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={{ color: '#FFF', marginTop: 15, fontSize: 13 }}>Sincronizando base de datos...</Text>
+      </View>
+    );
+  }
+
   if (!usuarioLogueado) {
     return (
       <SafeAreaView style={styles.contenedorLogin}>
         <View style={styles.tarjetaLogin}>
-          <Text style={styles.loginTitulo}>🔑 Acceso Cuadrante {añoActual}</Text>
-          <Text style={styles.loginSubtitulo}>Introduce tus credenciales de equipo</Text>
-          <Text style={styles.labelInput}>Nombre de usuario</Text>
+          <Text style={styles.loginTitulo}>🔑 Acceso Cuadrante {anioActual}</Text>
+          <Text style={styles.loginSubtitulo}>Sincronizado en tiempo real</Text>
+          <Text style={styles.labelInput}>Usuario</Text>
           <TextInput style={styles.entradaTextoLogin} placeholder="Usuario" value={inputUsuario} onChangeText={setInputUsuario} autoCapitalize="none"/>
           <Text style={[styles.labelInput, {marginTop: 15}]}>Contraseña</Text>
           <TextInput style={styles.entradaTextoLogin} placeholder="••••••••" secureTextEntry={true} value={inputContraseña} onChangeText={setInputContraseña} autoCapitalize="none"/>
           <TouchableOpacity style={styles.botonLogin} onPress={iniciarSesion}>
-            <Text style={styles.textoBotonLogin}>Entrar al Panel</Text>
+            <Text style={styles.textoBotonLogin}>Entrar</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // VISTA 2: ADMINISTRADOR
+  // ==========================================================
+  // 👑 VISTA: ADMINISTRADOR
+  // ==========================================================
   if (usuarioLogueado.rol === 'admin') {
     const todosLosEmpleados = usuariosDB.filter(u => u.rol === 'empleado');
-    const peticionesDelSeleccionado = peticiones.filter(p => p.tecnicoId === idSeleccionadoModificar);
 
     return (
       <SafeAreaView style={styles.contenedor}>
         <View style={styles.cabeceraAdmin}>
           <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={styles.titulo}>👑 Panel de Control Técnico</Text>
-            <Text style={styles.subtitulo} numberOfLines={1}>Administrador activo: {usuarioLogueado.user}</Text>
+            <Text style={styles.titulo}>👑 Panel de Control</Text>
+            <Text style={styles.subtitulo}>Admin: {usuarioLogueado.usuario}</Text>
           </View>
           <TouchableOpacity style={styles.botonCerrarSesion} onPress={cerrarSesion}>
             <Text style={styles.textoBotonCerrar}>Salir</Text>
@@ -449,66 +507,82 @@ export default function App() {
 
         <ScrollView style={styles.cuerpo}>
           
-          {/* ✨ NUEVA SECCIÓN: CONTRATAR / AÑADIR NUEVO OPERARIO A LA PLANTILLA */}
+          {/* Tarifas Editables + BOTÓN GENERAR GUARDIA INTELIGENTE */}
+          <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1.5 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#10B981' }]}>💰 Tarifas de Guardia y Generación</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Laborable (€)</Text>
+                <TextInput style={styles.entradaTexto} keyboardType="numeric" value={precioLaborable} onChangeText={setPrecioLaborable}/>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Festivo/Finde (€)</Text>
+                <TextInput style={styles.entradaTexto} keyboardType="numeric" value={precioFestivoFinde} onChangeText={setPrecioFestivoFinde}/>
+              </View>
+            </View>
+            
+            {/* SOLUCIÓN: Botón Inteligente para evitar repetición de festivos */}
+            <TouchableOpacity style={styles.botonInteligente} onPress={generarCalendarioInteligenteEquitativo}>
+              <Text style={styles.textoBotonInteligente}>🔄 Generar Cuadrante Inteligente (Festivos Equitativos)</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Balance de Vacaciones */}
+          <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#059669' }]}>📊 Balance de Vacaciones del Equipo</Text>
+            <View style={{ marginTop: 4 }}>
+              {todosLosEmpleados.map((emp) => {
+                const con = calcularContadoresVacaciones(emp.usuario, usuariosDB, peticiones);
+                return (
+                  <View key={emp.usuario} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0', alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '500', color: '#1E293B', fontSize: 13 }}>👤 {emp.nombre}</Text>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <Text style={{ fontSize: 12 }}>Asignados: <Text style={{ fontWeight: 'bold' }}>{con.totales}</Text></Text>
+                      <Text style={{ fontSize: 12, color: '#3B82F6' }}>Gastados: <Text style={{ fontWeight: 'bold' }}>{con.disfrutados}</Text></Text>
+                      <Text style={{ fontSize: 12, color: '#10B981' }}>Disponibles: <Text style={{ fontWeight: 'bold' }}>{con.restantes}</Text></Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Alta de Técnicos */}
           <View style={[styles.tarjeta, { borderColor: '#8B5CF6', borderWidth: 1.5 }]}>
             <Text style={[styles.tituloSeccion, { color: '#7C3AED' }]}>➕ Registrar Alta de Nuevo Técnico</Text>
-            <Text style={styles.labelInput}>Nombre y Apellido Completo</Text>
+            <Text style={styles.labelInput}>Nombre Completo</Text>
             <TextInput style={styles.entradaTexto} placeholder="Ej: Carlos Gómez" value={nuevoNombreTecnico} onChangeText={setNuevoNombreTecnico}/>
             
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.labelInput}>Usuario Login</Text>
-                <TextInput style={styles.entradaTexto} placeholder="carlos01" value={nuevoUserTecnico} onChangeText={setNuevoUserTecnico} autoCapitalize="none"/>
+                <TextInput style={styles.entradaTexto} value={nuevoUserTecnico} onChangeText={setNuevoUserTecnico} autoCapitalize="none"/>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.labelInput}>Contraseña</Text>
-                <TextInput style={styles.entradaTexto} placeholder="Clave123" value={nuevoPassTecnico} onChangeText={setNuevoPassTecnico} autoCapitalize="none"/>
+                <TextInput style={styles.entradaTexto} value={nuevoPassTecnico} onChangeText={setNuevoPassTecnico} autoCapitalize="none"/>
               </View>
             </View>
-
-            <Text style={[styles.labelInput, { marginTop: 8 }]}>Color identificativo en Calendario</Text>
-            <View style={styles.grupoBotonesGrid}>
-              {['#8B5CF6', '#EC4899', '#06B6D4', '#F43F5E', '#14B8A6'].map((col) => (
-                <TouchableOpacity 
-                  key={col} 
-                  style={[styles.miniBotonColor, { backgroundColor: col }, nuevoColorTecnico === col && { borderWidth: 2, borderColor: '#000' }]} 
-                  onPress={() => setNuevoColorTecnico(col)}
-                />
-              ))}
-            </View>
+            <Text style={styles.labelInput}>Días Totales Iniciales</Text>
+            <TextInput style={styles.entradaTexto} keyboardType="numeric" value={nuevosDiasTotales} onChangeText={setNuevosDiasTotales}/>
 
             <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#8B5CF6' }]} onPress={registrarNuevoTecnico}>
-              <Text style={styles.textoBotonEnviar}>💾 Dar de Alta Técnico en Base de Datos</Text>
+              <Text style={styles.textoBotonEnviar}>💾 Guardar en Servidor</Text>
             </TouchableOpacity>
           </View>
 
-          {/* SECCIÓN: REGENERAR CUADRANTE GENERAL (RESTAURADO) */}
-          <View style={[styles.tarjeta, { backgroundColor: '#F8FAFC', borderColor: '#475569', borderWidth: 1 }]}>
-            <Text style={styles.tituloSeccion}>🎲 Distribución Automatizada del Año</Text>
-            <Text style={{ fontSize: 12, color: '#475569', marginBottom: 10 }}>
-              Genera o redistribuye las guardias de forma aleatoria de enero a diciembre equilibrando los turnos entre todos los técnicos creados.
-            </Text>
-            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#475569', marginTop: 0 }]} onPress={handleRegenerarAleatorioAnual}>
-              <Text style={styles.textoBotonEnviar}>🎲 Combinar y Repartir Guardias Anuales</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* SECCIÓN: SOLICITUDES PENDIENTES */}
+          {/* Buzón de Solicitudes */}
           <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1.5 }]}>
-            <Text style={[styles.tituloSeccion, { color: '#059669' }]}>📌 Solicitudes Pendientes (Buzón de Entrada)</Text>
+            <Text style={[styles.tituloSeccion, { color: '#059669' }]}>📌 Solicitudes Recibidas (Pendientes)</Text>
             {peticiones.filter(p => p.estado === 'Pendiente').length === 0 ? (
-              <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', padding: 10 }}>No hay solicitudes web pendientes.</Text>
+              <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', padding: 10 }}>No hay peticiones nuevas.</Text>
             ) : (
               peticiones.filter(p => p.estado === 'Pendiente').map((pet) => (
                 <View key={pet.id} style={styles.contenedorItemPeticion}>
                   <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={styles.peticionNombre}>{pet.nombre}</Text>
-                      <View style={[styles.badgeTipo, { backgroundColor: pet.tipo === 'Vacaciones' ? '#3B82F6' : '#F59E0B' }]}>
-                        <Text style={styles.textoBadge}>{pet.tipo.toUpperCase()}</Text>
-                      </View>
-                    </View>
+                    <Text style={styles.peticionNombre}>{pet.nombre} ({pet.tipo})</Text>
                     <Text style={styles.peticionFechas}>📅 {pet.inicio} al {pet.fin}</Text>
+                    <Text style={{ fontSize: 11, color: '#64748B' }}>Días a restar: {calcularDiasEntreFechas(pet.inicio, pet.fin)}</Text>
                   </View>
                   <View style={styles.bloqueAccionesPeticion}>
                     <TouchableOpacity style={[styles.botonAccionMini, { backgroundColor: '#10B981' }]} onPress={() => resolverPeticion(pet.id, 'Aprobado')}>
@@ -523,160 +597,111 @@ export default function App() {
             )}
           </View>
 
-          {/* CONTROL DE CREDENCIALES + MODIFICADOR INTUITIVO DE VACACIONES */}
+          {/* Gestión de Credenciales */}
           <View style={[styles.tarjeta, { borderColor: '#6366F1', borderWidth: 1.5 }]}>
-            <Text style={[styles.tituloSeccion, { color: '#4F46E5' }]}>⚙️ Gestión de Credenciales y Vacaciones</Text>
-            <Text style={styles.labelInput}>Selecciona un técnico del equipo para gestionar:</Text>
-            
+            <Text style={[styles.tituloSeccion, { color: '#4F46E5' }]}>⚙️ Editar Credenciales y Vacaciones Directas</Text>
             <View style={styles.grupoBotonesGridVertical}>
               {todosLosEmpleados.map((emp) => (
                 <TouchableOpacity 
-                  key={emp.id} 
-                  style={[styles.botonSelectorGrande, idSeleccionadoModificar === emp.id && { backgroundColor: '#6366F1' }]} 
-                  onPress={() => seleccionarTecnicoParaModificar(emp.id)}
+                  key={emp.usuario} 
+                  style={[styles.botonSelectorGrande, idSeleccionadoModificar === emp.usuario && { backgroundColor: '#6366F1' }]} 
+                  onPress={() => seleccionarTecnicoParaModificar(emp.usuario)}
                 >
-                  <Text style={[styles.textoSelectorMini, idSeleccionadoModificar === emp.id && { color: '#FFF', fontWeight: 'bold' }]}>
+                  <Text style={[styles.textoSelectorMini, idSeleccionadoModificar === emp.usuario && { color: '#FFF' }]}>
                     👤 {emp.nombre}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            {/* VISOR Y MODIFICADOR DE VACACIONES DIRECTAS */}
-            <View style={styles.contenedorSubTarjetaVacaciones}>
-              <Text style={styles.tituloMiniVacaciones}>📆 Calendario actual de ausencias aprobadas/registradas:</Text>
-              {peticionesDelSeleccionado.length === 0 ? (
-                <Text style={styles.textoNoVacaciones}>Este operario no tiene vacaciones asignadas actualmente.</Text>
-              ) : (
-                peticionesDelSeleccionado.map(p => (
-                  <View key={p.id} style={styles.itemMiniVacacion}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 12, fontWeight: '500', color: '#1E293B' }}>
-                        {p.tipo === 'Vacaciones' ? '🌴 Vacaciones' : '☕ Día Libre'} 
-                        <Text style={{fontWeight: 'normal', fontSize: 11, color: p.estado === 'Aprobado' ? '#10B981' : '#F59E0B'}}> ({p.estado})</Text>
-                      </Text>
-                      <Text style={{ fontSize: 11, color: '#475569' }}>{p.inicio} hasta {p.fin}</Text>
-                    </View>
-                    <TouchableOpacity style={styles.botonEliminarVacacionDirecta} onPress={() => eliminarVacacionAdmin(p.id)}>
-                      <Text style={{ color: '#FFF', fontSize: 11, fontWeight: 'bold' }}>🗑️</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
+            <Text style={[styles.labelInput, {marginTop: 10}]}>Editar Usuario Login</Text>
+            <TextInput style={styles.entradaTexto} value={nuevoUserAdmin} onChangeText={setNuevoUserAdmin} autoCapitalize="none"/>
+            <Text style={styles.labelInput}>Editar Contraseña</Text>
+            <TextInput style={styles.entradaTexto} value={nuevoPassAdmin} onChangeText={setNuevoPassAdmin} autoCapitalize="none"/>
+            <Text style={styles.labelInput}>Modificar Asignación Total Días</Text>
+            <TextInput style={styles.entradaTexto} keyboardType="numeric" value={diasTotalesAdmin} onChangeText={setDiasTotalesAdmin}/>
 
-              {/* FORMULARIO DE INSERCIÓN/MODIFICACIÓN RÁPIDA DE VACACIONES */}
-              <View style={styles.divisorAdminVacaciones}>
-                <Text style={styles.tituloSubFormulario}>➕ Asignar / Modificar Ausencias Directamente:</Text>
+            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#6366F1' }]} onPress={aplicarChangeCredenciales}>
+              <Text style={styles.textoBotonEnviar}>💾 Actualizar Técnico</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 1, backgroundColor: '#E2E8F0', marginVertical: 12 }} />
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#4F46E5' }}>🌴 Forzar Periodo Aprobado:</Text>
+            
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+              <View style={{ flex: 1 }}>
+                <TextInput style={styles.entradaTexto} placeholder="Inicio: AAAA-MM-DD" value={adminFechaInicio} onChangeText={setAdminFechaInicio}/>
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={styles.entradaTexto} placeholder="Fin: AAAA-MM-DD" value={adminFechaFin} onChangeText={setAdminFechaFin}/>
+              </View>
+            </View>
+            
+            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#10B981' }]} onPress={asignarVacacionDirectaAdmin}>
+              <Text style={styles.textoBotonEnviar}>🌴 Asignar Periodo</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* SOLUCIÓN AL CALENDARIO (Admin) - Muestra correctamente quién está de guardia */}
+          <View style={styles.tarjeta}>
+            <Text style={styles.tituloSeccion}>📅 Vista Global de Cuadrante (Verificando Vacaciones)</Text>
+            <View style={styles.selectorMesContenedor}>
+              <TouchableOpacity onPress={() => cambiarMes('ant')} disabled={mesActual === 0}><Text style={styles.flechaSelector}>◀</Text></TouchableOpacity>
+              <Text style={styles.tituloMes}>{meses[mesActual]} {anioActual}</Text>
+              <TouchableOpacity onPress={() => cambiarMes('sig')} disabled={mesActual === 11}><Text style={styles.flechaSelector}>▶</Text></TouchableOpacity>
+            </View>
+
+            <View style={styles.rejillaCalendario}>
+              {celdasCalendario.map((celda, i) => {
+                if (celda.tipo === 'vacio') return <View key={`vacio-${i}`} style={styles.celdaVacia} />;
                 
-                <View style={[styles.grupoBotonesGrid, { marginVertical: 4 }]}>
-                  <TouchableOpacity 
-                    style={[styles.botonSelectorMini, adminTipoVacacion === 'Vacaciones' && { backgroundColor: '#3B82F6' }]} 
-                    onPress={() => setAdminTipoVacacion('Vacaciones')}
-                  >
-                    <Text style={[styles.textoSelectorMini, adminTipoVacacion === 'Vacaciones' && { color: '#FFF', fontWeight: 'bold' }]}>🌴 Vacaciones</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.botonSelectorMini, adminTipoVacacion === 'Día Libre' && { backgroundColor: '#F59E0B' }]} 
-                    onPress={() => setAdminTipoVacacion('Día Libre')}
-                  >
-                    <Text style={[styles.textoSelectorMini, adminTipoVacacion === 'Día Libre' && { color: '#FFF', fontWeight: 'bold' }]}>☕ Día Libre</Text>
-                  </TouchableOpacity>
-                </View>
+                let compId = guardiasAnuales[celda.fechaClave];
+                let estaDeVacaciones = comprobarSiEstaDeVacaciones(celda.fechaClave, compId, peticiones);
+                
+                // FIX: Busca al técnico en la lista completa (incluyendo administradores como J.Carlos)
+                let compData = usuariosDB.find(c => c.usuario === compId);
+                
+                const infoFestivo = festivosDelAnio[celda.fechaClave];
+                const esFestivoOFinde = celda.esFinde || !!infoFestivo;
+                const costeDia = esFestivoOFinde ? precioFestivoFinde : precioLaborable;
 
-                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                  <TextInput 
-                    style={[styles.entradaTexto, { flex: 1 }]} 
-                    placeholder="Inicio (AAAA-MM-DD)" 
-                    value={adminFechaInicio} 
-                    onChangeText={setAdminFechaInicio}
-                  />
-                  <TextInput 
-                    style={[styles.entradaTexto, { flex: 1 }]} 
-                    placeholder="Fin (AAAA-MM-DD)" 
-                    value={adminFechaFin} 
-                    onChangeText={setAdminFechaFin}
-                  />
-                </View>
-
-                <TouchableOpacity style={styles.botonAsignarDirecto} onPress={asignarVacacionDirectaAdmin}>
-                  <Text style={{ color: '#FFF', fontSize: 11, fontWeight: 'bold' }}>⚡ Asignar / Guardar Periodo</Text>
-                </TouchableOpacity>
-              </View>
+                return (
+                  <View key={celda.fechaClave} style={[styles.celdaDia, esFestivoOFinde && { backgroundColor: '#FFF1F2' }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[styles.numeroDia, esFestivoOFinde && { fontWeight: 'bold', color: '#EF4444' }]}>
+                        {celda.dia} {infoFestivo ? infoFestivo.icono : ''}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 7, color: esFestivoOFinde ? '#E11D48' : '#10B981', alignSelf: 'center', fontWeight: 'bold' }}>{costeDia}€</Text>
+                    
+                    <View style={[styles.indicadorGuardia, { backgroundColor: estaDeVacaciones ? '#94A3B8' : (compData ? compData.color : '#475569') }]}>
+                      <Text style={styles.textoIndicador} numberOfLines={1}>
+                        {estaDeVacaciones ? 'PALMA' : (compData ? compData.nombre.split(' ')[0] : (compId || 'Libre'))}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
-
-            {/* SECCIÓN DE CREDENCIALES DEL OPERARIO */}
-            <Text style={[styles.labelInput, { marginTop: 12 }]}>Editar Usuario de Acceso</Text>
-            <TextInput style={styles.entradaTexto} placeholder="Nombre de Usuario" value={nuevoUserAdmin} onChangeText={setNuevoUserAdmin} autoCapitalize="none"/>
-            
-            <Text style={[styles.labelInput, { marginTop: 8 }]}>Editar Contraseña</Text>
-            <TextInput style={styles.entradaTexto} placeholder="Contraseña" value={nuevoPassAdmin} onChangeText={setNuevoPassAdmin} autoCapitalize="none"/>
-            
-            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#6366F1' }]} onPress={aplicarCambioCredenciales}>
-              <Text style={styles.textoBotonEnviar}>💾 Guardar Credenciales de Usuario</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* GUARDIA SEMANAL ACTUAL */}
-          <View style={[styles.tarjeta, { borderColor: '#3B82F6', borderWidth: 1 }]}>
-            <Text style={styles.tituloSeccion}>📅 Control de Guardia Semanal</Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                <Text style={{ fontSize: 12, color: '#64748B' }}>Técnico Activo:</Text>
-                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1E293B' }}>⚡ {infoSemanaAdmin.nombre}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 12, color: '#64748B' }}>Coste de Guardia:</Text>
-                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#10B981' }}>{infoSemanaAdmin.coste} €</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* SUSTITUCIÓN DE EMERGENCIA */}
-          <View style={[styles.tarjeta, { borderColor: '#EF4444', borderWidth: 1 }]}>
-            <Text style={[styles.tituloSeccion, { color: '#B91C1C' }]}>🚨 Sustitución de Emergencia</Text>
-            
-            <Text style={styles.labelInput}>1. ¿Quién causa baja?</Text>
-            <View style={styles.grupoBotonesGridVertical}>
-              {todosLosEmpleados.map((emp) => (
-                <TouchableOpacity key={emp.id} style={[styles.botonSelectorGrande, idSaliente === emp.id && { backgroundColor: '#EF4444' }]} onPress={() => setIdSaliente(emp.id)}>
-                  <Text style={[styles.textoSelectorMini, idSaliente === emp.id && { color: '#FFF', fontWeight: 'bold' }]}>{emp.nombre}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.labelInput, { marginTop: 10 }]}>2. ¿Quién hereda las guardias?</Text>
-            <View style={styles.grupoBotonesGridVertical}>
-              {todosLosEmpleados.map((emp) => (
-                <TouchableOpacity key={emp.id} style={[styles.botonSelectorGrande, idEntrante === emp.id && { backgroundColor: '#10B981' }]} onPress={() => setIdEntrante(emp.id)}>
-                  <Text style={[styles.textoSelectorMini, idEntrante === emp.id && { color: '#FFF', fontWeight: 'bold' }]}>{emp.nombre}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.labelInput, { marginTop: 10 }]}>3. Fecha Efectiva (AAAA-MM-DD)</Text>
-            <TextInput style={styles.entradaTexto} placeholder={`Ej: ${añoActual}-06-15`} value={fechaEfectiva} onChangeText={setFechaEfectiva} />
-            <TouchableOpacity style={styles.botonEjecutarMasivo} onPress={ejecutarReemplazoMasivo}>
-              <Text style={styles.textoBotonEnviar}>⚡ Aplicar Cambio Masivo</Text>
-            </TouchableOpacity>
           </View>
         </ScrollView>
       </SafeAreaView>
     );
   }
 
-  // VISTA 3: TÉCNICOS (EMPLEADOS)
+  // ==========================================================
+  // 👤 VISTA: EMPLEADO / TÉCNICO
+  // ==========================================================
   const misTecnicos = usuariosDB.filter(u => u.rol === 'empleado');
-  const totalEurosPropio = nominasMesActual[usuarioLogueado.id] || 0;
+  const contadoresPropios = calcularContadoresVacaciones(usuarioLogueado.usuario, usuariosDB, peticiones);
+  const desgloseFinanciero = calcularImporteMensualGuardia(usuarioLogueado.usuario, mesActual);
 
   return (
     <SafeAreaView style={styles.contenedor}>
       <View style={styles.cabecera}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={[styles.circuloColor, { backgroundColor: usuarioLogueado.color, width: 16, height: 16 }]} />
-          <View style={{ marginLeft: 6 }}>
-            <Text style={styles.titulo}>👋 ¡Hola, {usuarioLogueado.nombre}!</Text>
-            <Text style={styles.subtitulo}>Año en curso: {añoActual}</Text>
-          </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.titulo}>👋 Hola, {usuarioLogueado.nombre}</Text>
+          <Text style={{ fontSize: 11, color: '#475569', fontWeight: '500' }}>Técnico de Guardia Activo</Text>
         </View>
         <TouchableOpacity style={styles.botonCerrarSesion} onPress={cerrarSesion}>
           <Text style={styles.textoBotonCerrar}>Salir</Text>
@@ -684,168 +709,1041 @@ export default function App() {
       </View>
 
       <ScrollView style={styles.cuerpo}>
-        <View style={styles.tarjetaResumenPropia}>
-          <Text style={styles.tituloSeccionBlanco}>💰 Mis Ingresos Calculados ({meses[mesActual]})</Text>
-          <Text style={styles.cifraNominaGrande}>{totalEurosPropio} €</Text>
+        {/* Marcador Financiero */}
+        <View style={[styles.tarjeta, { backgroundColor: '#0F172A', borderColor: '#10B981', borderWidth: 1 }]}>
+          <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#10B981', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            💰 Guardias Estimadas de {meses[mesActual]}
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, alignItems: 'center' }}>
+            <View>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#FFF' }}>{desgloseFinanciero.totalAcumulado} €</Text>
+              <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                Laborables: {desgloseFinanciero.diasLaborables} | Festivos/Finde: {desgloseFinanciero.diasFestivosFinde}
+              </Text>
+            </View>
+            <View style={{ backgroundColor: '#1E293B', padding: 10, borderRadius: 10 }}>
+              <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>{anioActual}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* CALENDARIO */}
+        {/* Marcadores Vacaciones */}
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#E2E8F0' }]}>
+            <Text style={styles.labelContadorMini}>Asignados</Text>
+            <Text style={styles.cifraContadorMini}>{contadoresPropios.totales}</Text>
+          </View>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#DBEAFE' }]}>
+            <Text style={[styles.labelContadorMini, { color: '#1E40AF' }]}>Disfrutados</Text>
+            <Text style={[styles.cifraContadorMini, { color: '#1E40AF' }]}>{contadoresPropios.disfrutados}</Text>
+          </View>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#D1FAE5' }]}>
+            <Text style={[styles.labelContadorMini, { color: '#065F46' }]}>Quedan</Text>
+            <Text style={[styles.cifraContadorMini, { color: '#065F46' }]}>{contadoresPropios.restantes}</Text>
+          </View>
+        </View>
+
+        {/* Solicitudes de Vacaciones */}
+        <View style={[styles.tarjeta, { borderColor: '#3B82F6', borderWidth: 1 }]}>
+          <Text style={[styles.tituloSeccion, { color: '#1D4ED8' }]}>✉️ Tramitar Vacaciones o Días</Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginVertical: 6 }}>
+            {['Vacaciones', 'Día Libre'].map((tipo) => (
+              <TouchableOpacity key={tipo} style={[styles.botonSelectorGrande, { flex: 1 }, empTipoAusencia === tipo && { backgroundColor: '#3B82F6' }]} onPress={() => setEmpTipoAusencia(tipo)}>
+                <Text style={[styles.textoSelectorMini, { textAlign: 'center' }, empTipoAusencia === tipo && { color: '#FFF' }]}>{tipo}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <View style={{ flex: 1 }}>
+              <TextInput style={styles.entradaTexto} placeholder="Inicio: AAAA-MM-DD" value={empFechaInicio} onChangeText={setEmpFechaInicio}/>
+            </View>
+            <View style={{ flex: 1 }}>
+              <TextInput style={styles.entradaTexto} placeholder="Fin: AAAA-MM-DD" value={empFechaFin} onChangeText={setEmpFechaFin}/>
+            </View>
+          </View>
+          
+          <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#3B82F6' }]} onPress={solicitarDiasEmpleado}>
+            <Text style={styles.textoBotonEnviar}>🚀 Enviar Solicitud Remota</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Historial Propio */}
+        <View style={styles.tarjeta}>
+          <Text style={styles.tituloSeccion}>📋 Mis Solicitudes de Ausencia</Text>
+          {peticiones.filter(p => p.tecnicoId === usuarioLogueado.usuario).map((pet, ind) => (
+            <View key={ind} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#F1F5F9' }}>
+              <View>
+                <Text style={{ fontWeight: 'bold', fontSize: 13 }}>{pet.tipo} ({calcularDiasEntreFechas(pet.inicio, pet.fin)} días)</Text>
+                <Text style={{ fontSize: 11, color: '#64748B' }}>📅 {pet.inicio} al {pet.fin}</Text>
+              </View>
+              <Text style={{ fontWeight: 'bold', fontSize: 12, color: pet.estado === 'Aprobado' ? '#10B981' : '#F59E0B' }}>{pet.estado}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Calendario Empleado */}
         <View style={styles.tarjeta}>
           <View style={styles.selectorMesContenedor}>
-            <TouchableOpacity onPress={() => cambiarMes('ant')} disabled={mesActual === 0}>
-              <Text style={[styles.flechaSelector, mesActual === 0 && { color: '#CBD5E1' }]}>◀</Text>
-            </TouchableOpacity>
-            <Text style={styles.tituloMes}>{meses[mesActual]} {añoActual}</Text>
-            <TouchableOpacity onPress={() => cambiarMes('sig')} disabled={mesActual === 11}>
-              <Text style={[styles.flechaSelector, mesActual === 11 && { color: '#CBD5E1' }]}>▶</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.diasSemanaContenedor}>
-            {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d, i) => (
-              <Text key={i} style={styles.textoDiaSemana}>{d}</Text>
-            ))}
+            <TouchableOpacity onPress={() => cambiarMes('ant')} disabled={mesActual === 0}><Text style={styles.flechaSelector}>◀</Text></TouchableOpacity>
+            <Text style={styles.tituloMes}>{meses[mesActual]} {anioActual}</Text>
+            <TouchableOpacity onPress={() => cambiarMes('sig')} disabled={mesActual === 11}><Text style={styles.flechaSelector}>▶</Text></TouchableOpacity>
           </View>
 
           <View style={styles.rejillaCalendario}>
-            {celdasCalendario.map((celda) => {
-              if (celda.tipo === 'vacio') return <View key={celda.id} style={styles.celdaVacia} />;
+            {celdasCalendario.map((celda, i) => {
+              if (celda.tipo === 'vacio') return <View key={`vacio-${i}`} style={styles.celdaVacia} />;
 
               const compId = guardiasAnuales[celda.fechaClave];
-              const compData = misTecnicos.find(c => c.id === compId);
+              let estaDeVacaciones = comprobarSiEstaDeVacaciones(celda.fechaClave, compId, peticiones);
+              const compData = usuariosDB.find(c => c.usuario === compId);
               
-              const colorFondo = compData ? compData.color : '#E2E8F0';
-              const esMiGuardia = compId === usuarioLogueado.id;
-              const infoFestivo = festivosDelAño[celda.fechaClave];
-              const esFestivoTarifaCara = infoFestivo && (infoFestivo.tipo === 'Nacional' || infoFestivo.tipo === 'Autonómico');
+              const infoFestivo = festivosDelAnio[celda.fechaClave];
+              const esFestivoOFinde = celda.esFinde || !!infoFestivo;
+              const costeDia = esFestivoOFinde ? precioFestivoFinde : precioLaborable;
 
               return (
-                <TouchableOpacity 
-                  key={celda.fechaClave} 
-                  style={[
-                    styles.celdaDia, 
-                    { backgroundColor: colorFondo }, 
-                    esMiGuardia && { borderWidth: 2, borderColor: '#1E293B' },
-                    infoFestivo && { borderColor: '#EF4444', borderWidth: 2 } 
-                  ]}
-                  onPress={() => {
-                    const precioDia = (celda.esFinde || esFestivoTarifaCara) ? precioFestivoFinde : precioLaborable;
-                    Alert.alert(
-                      `Día ${celda.dia} de ${meses[mesActual]}`, 
-                      `${compData ? `Guardia: ${compData.nombre}` : '❌ SIN ASIGNAR'}\nTurno: ${precioDia}€`
-                    );
-                  }}
-                >
-                  <View style={styles.contenedorTextoDia}>
-                    <Text style={[styles.textoDia, compData ? { color: '#FFFFFF', fontWeight: 'bold' } : { color: '#64748B' }]}>
-                      {celda.dia}
+                <View key={celda.fechaClave} style={[styles.celdaDia, esFestivoOFinde && { backgroundColor: '#FFF1F2' }]}>
+                  <Text style={[styles.numeroDia, esFestivoOFinde && { fontWeight: 'bold', color: '#EF4444' }]}>
+                    {celda.dia} {infoFestivo ? infoFestivo.icono : ''}
+                  </Text>
+                  <Text style={{ fontSize: 7, color: esFestivoOFinde ? '#E11D48' : '#10B981', textAlign: 'center', fontWeight: 'bold' }}>{costeDia}€</Text>
+                  
+                  <View style={[styles.indicadorGuardia, { backgroundColor: estaDeVacaciones ? '#94A3B8' : (compData ? compData.color : '#475569') }]}>
+                    <Text style={styles.textoIndicador} numberOfLines={1}>
+                      {estaDeVacaciones ? 'PALMA' : (compData ? compData.nombre.split(' ')[0] : (compId || 'Libre'))}
                     </Text>
-                    {infoFestivo && <Text numberOfLines={1} style={styles.textoMiniFestivo}>{infoFestivo.icono}</Text>}
                   </View>
-                </TouchableOpacity>
+                </View>
               );
             })}
           </View>
-        </View>
-
-        {/* TRÁMITES TÉCNICO */}
-        <View style={styles.tarjeta}>
-          <Text style={styles.tituloSeccion}>🚀 Solicitar Vacaciones o Día Libre</Text>
-          
-          <Text style={styles.labelInput}>Selecciona el tipo:</Text>
-          <View style={[styles.grupoBotonesGrid, { marginBottom: 12 }]}>
-            <TouchableOpacity 
-              style={[styles.botonSelectorMini, tipoTramiteSeleccionado === 'Vacaciones' && { backgroundColor: '#3B82F6' }]} 
-              onPress={() => setTipoTramiteSeleccionado('Vacaciones')}
-            >
-              <Text style={[styles.textoSelectorMini, tipoTramiteSeleccionado === 'Vacaciones' && { color: '#FFF', fontWeight: 'bold' }]}>🌴 Vacaciones</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.botonSelectorMini, tipoTramiteSeleccionado === 'Día Libre' && { backgroundColor: '#F59E0B' }]} 
-              onPress={() => setTipoTramiteSeleccionado('Día Libre')}
-            >
-              <Text style={[styles.textoSelectorMini, tipoTramiteSeleccionado === 'Día Libre' && { color: '#FFF', fontWeight: 'bold' }]}>☕ Día Libre</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TextInput style={styles.entradaTexto} placeholder={`Inicio (Ej: ${añoActual}-06-15)`} value={fechaInicio} onChangeText={setFechaInicio} />
-          <TextInput style={[styles.entradaTexto, { marginTop: 10 }]} placeholder={`Fin (Ej: ${añoActual}-06-22)`} value={fechaFin} onChangeText={setFechaFin} />
-          
-          <TouchableOpacity style={styles.botonEnviar} onPress={enviarSolicitud}>
-            <Text style={styles.textoBotonEnviar}>Enviar Petición a Revisión</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ==========================================
+// 🎨 DISEÑO GRÁFICO (STYLING)
+// ==========================================
 const styles = StyleSheet.create({
-  contenedorLogin: { flex: 1, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' },
-  tarjetaLogin: { backgroundColor: '#FFFFFF', width: '85%', padding: 25, borderRadius: 16 },
-  loginTitulo: { fontSize: 18, fontWeight: 'bold', color: '#0F172A', textAlign: 'center' },
-  loginSubtitulo: { fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 4, marginBottom: 20 },
-  labelInput: { fontSize: 11, fontWeight: 'bold', color: '#475569', marginBottom: 6 },
-  entradaTextoLogin: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, fontSize: 14, color: '#0F172A' },
-  botonLogin: { backgroundColor: '#3B82F6', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 25 },
-  textoBotonLogin: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-
-  contenedor: { flex: 1, backgroundColor: '#F0F4F8' },
-  cabecera: { backgroundColor: '#1E293B', padding: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cabeceraAdmin: { backgroundColor: '#475569', padding: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  titulo: { fontSize: 16, fontWeight: 'bold', color: '#FFFFFF' },
-  subtitulo: { fontSize: 11, color: '#CBD5E1', marginTop: 2 },
-  botonCerrarSesion: { backgroundColor: '#EF4444', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
-  textoBotonCerrar: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
-  cuerpo: { flex: 1 },
-  circuloColor: { borderRadius: 8 },
-  
-  tarjeta: { backgroundColor: '#FFFFFF', margin: 12, padding: 12, borderRadius: 12 },
-  tarjetaResumenPropia: { backgroundColor: '#1E293B', margin: 12, padding: 16, borderRadius: 12 },
-  tituloSeccionBlanco: { fontSize: 13, fontWeight: 'bold', color: '#94A3B8' },
-  cifraNominaGrande: { fontSize: 32, fontWeight: 'bold', color: '#10B981', marginVertical: 4 },
-  tituloSeccion: { fontSize: 14, fontWeight: 'bold', color: '#334155', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', paddingBottom: 5 },
-
-  contenedorItemPeticion: { padding: 10, backgroundColor: '#F8FAFC', borderRadius: 8, marginVertical: 4, borderWidth: 1, borderColor: '#E2E8F0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  peticionNombre: { fontWeight: 'bold', fontSize: 14, color: '#1E293B' },
-  peticionFechas: { fontSize: 12, color: '#475569', marginTop: 2 },
-  badgeTipo: { marginLeft: 8, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  textoBadge: { color: '#FFF', fontSize: 9, fontWeight: 'bold' },
-  bloqueAccionesPeticion: { flexDirection: 'row', alignItems: 'center' },
-  botonAccionMini: { width: 32, height: 32, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  textoBotonMini: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-
-  selectorMesContenedor: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  tituloMes: { fontSize: 16, fontWeight: 'bold', color: '#1E293B' },
-  flechaSelector: { fontSize: 18, color: '#3B82F6', paddingHorizontal: 15 },
-  diasSemanaContenedor: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 5 },
-  textoDiaSemana: { fontWeight: 'bold', color: '#64748B', width: 35, textAlign: 'center', fontSize: 12 },
-  rejillaCalendario: { flexDirection: 'row', flexWrap: 'wrap' },
-  celdaDia: { width: '12%', height: 46, margin: '1.1%', justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
-  celdaVacia: { width: '12%', height: 46, margin: '1.1%' },
-  contenedorTextoDia: { alignItems: 'center', justifyContent: 'center' },
-  textoDia: { fontSize: 12 },
-  textoMiniFestivo: { fontSize: 9, color: '#FFFFFF', marginTop: 1 },
-  
-  entradaTexto: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 8, fontSize: 13, color: '#334155' },
-  botonEnviar: { backgroundColor: '#10B981', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 15 },
-  textoBotonEnviar: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 13 },
-
-  grupoBotonesGrid: { flexDirection: 'row', justifyContent: 'flex-start', marginVertical: 5 },
-  grupoBotonesGridVertical: { marginVertical: 5 },
-  botonSelectorMini: { flex: 1, backgroundColor: '#F1F5F9', paddingVertical: 8, borderRadius: 6, alignItems: 'center', marginHorizontal: 2 },
-  botonSelectorGrande: { backgroundColor: '#F1F5F9', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 6, marginVertical: 3, alignItems: 'flex-start' },
+  contenedor: { flex: 1, backgroundColor: '#F1F5F9' },
+  contenedorLogin: { flex: 1, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  tarjetaLogin: { backgroundColor: '#FFF', width: '100%', maxWidth: 350, padding: 24, borderRadius: 16 },
+  loginTitulo: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', textAlign: 'center' },
+  loginSubtitulo: { fontSize: 12, color: '#64748B', textAlign: 'center', marginBottom: 20 },
+  cabecera: { backgroundColor: '#FFF', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cabeceraAdmin: { backgroundColor: '#FFF', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: '#E2E8F0' },
+  titulo: { fontSize: 17, fontWeight: 'bold', color: '#0F172A' },
+  subtitulo: { fontSize: 11, color: '#64748B' },
+  botonCerrarSesion: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  textoBotonCerrar: { color: '#64748B', fontSize: 12, fontWeight: 'bold' },
+  cuerpo: { flex: 1, padding: 10 },
+  tarjeta: { backgroundColor: '#FFF', padding: 14, borderRadius: 12, marginBottom: 10 },
+  tituloSeccion: { fontSize: 14, fontWeight: 'bold', color: '#1E293B', marginBottom: 10 },
+  labelInput: { fontSize: 11, fontWeight: '700', color: '#475569', marginBottom: 2 },
+  entradaTexto: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', padding: 8, borderRadius: 8, fontSize: 11, marginBottom: 8, color: '#000' },
+  entradaTextoLogin: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', padding: 12, borderRadius: 10, fontSize: 14 },
+  botonLogin: { backgroundColor: '#10B981', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 15 },
+  textoBotonLogin: { color: '#FFF', fontWeight: 'bold' },
+  botonEnviar: { backgroundColor: '#10B981', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 4 },
+  textoBotonEnviar: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
+  botonInteligente: { backgroundColor: '#10B981', padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 5 },
+  textoBotonInteligente: { color: '#FFF', fontWeight: 'bold', fontSize: 12 },
+  contenedorItemPeticion: { backgroundColor: '#F8FAFC', padding: 10, borderRadius: 8, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  peticionNombre: { fontSize: 13, fontWeight: 'bold', color: '#1E293B' },
+  peticionFechas: { fontSize: 12, color: '#475569' },
+  bloqueAccionesPeticion: { flexDirection: 'row' },
+  botonAccionMini: { width: 32, height: 32, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+  textoBotonMini: { color: '#FFF', fontWeight: 'bold' },
+  grupoBotonesGridVertical: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 4 },
+  botonSelectorGrande: { backgroundColor: '#F1F5F9', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
   textoSelectorMini: { fontSize: 12, color: '#475569' },
-  botonEjecutarMasivo: { backgroundColor: '#EF4444', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 15 },
+  selectorMesContenedor: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  flechaSelector: { fontSize: 18, color: '#1E293B', paddingHorizontal: 10 },
+  tituloMes: { fontSize: 15, fontWeight: 'bold', color: '#1E293B' },
+  rejillaCalendario: { flexDirection: 'row', flexWrap: 'wrap' },
+  celdaDia: { width: '14.28%', height: 54, borderWidth: 0.2, borderColor: '#E2E8F0', padding: 2, justifyContent: 'space-between' },
+  celdaVacia: { width: '14.28%', height: 54 },
+  numeroDia: { fontSize: 10, color: '#64748B' },
+  indicadorGuardia: { borderRadius: 4, paddingVertical: 2, paddingHorizontal: 1, alignItems: 'center' },
+  textoIndicador: { color: '#FFF', fontSize: 8, fontWeight: 'bold' },
+  miniTarjetaContador: { padding: 10, borderRadius: 10, alignItems: 'center' },
+  labelContadorMini: { fontSize: 10, fontWeight: 'bold', color: '#475569' },
+  cifraContadorMini: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginTop: 2 }
+});import React, { useState, useEffect } from 'react';
+import { Text, View, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-  contenedorSubTarjetaVacaciones: { backgroundColor: '#F8FAFC', padding: 10, borderRadius: 8, marginTop: 8, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' },
-  tituloMiniVacaciones: { fontSize: 11, fontWeight: 'bold', color: '#475569', marginBottom: 5 },
-  textoNoVacaciones: { fontSize: 11, color: '#94A3B8', fontStyle: 'italic', marginBottom: 5 },
-  itemMiniVacacion: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  botonEliminarVacacionDirecta: { backgroundColor: '#EF4444', padding: 6, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
-  divisorAdminVacaciones: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#CBD5E1' },
-  tituloSubFormulario: { fontSize: 11, fontWeight: 'bold', color: '#334155', marginBottom: 4 },
-  botonAsignarDirecto: { backgroundColor: '#3B82F6', paddingVertical: 8, borderRadius: 6, alignItems: 'center', marginTop: 8 },
+// ==========================================
+// CONFIGURACIÓN DE TU SERVIDOR EN LA NUBE
+// ==========================================
+const SUPABASE_URL = "https://wzgoimvoxnnjaytmlpff.supabase.co"; 
+const SUPABASE_ANON_KEY = "sb_publishable_wqksW-E9AUDHJdVG1_VqWw_dCyBrvvZ"; 
+
+const supabaseFetch = async (endpoint, options = {}) => {
+  const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+    ...options.headers
+  };
   
-  miniBotonColor: { width: 32, height: 32, borderRadius: 16, marginRight: 10 },
+  try {
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.message || 'Error en el servidor');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error Supabase:", error);
+    throw error;
+  }
+};
+
+export default function App() {
+  const anioActual = 2026;
+
+  const meses = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+
+  // Tarifas de guardia editables
+  const [precioLaborable, setPrecioLaborable] = useState('28');
+  const [precioFestivoFinde, setPrecioFestivoFinde] = useState('70');
+
+  // Estados Globales
+  const [usuariosDB, setUsuariosDB] = useState([]);
+  const [peticiones, setPeticiones] = useState([]);
+  const [cargandoDatosGlobales, setCargandoDatosGlobales] = useState(true);
+
+  // Estados altas técnico
+  const [nuevoNombreTecnico, setNuevoNombreTecnico] = useState('');
+  const [nuevoUserTecnico, setNuevoUserTecnico] = useState('');
+  const [nuevoPassTecnico, setNuevoPassTecnico] = useState('');
+  const [nuevoColorTecnico, setNuevoColorTecnico] = useState('#8B5CF6');
+  const [nuevosDiasTotales, setNuevosDiasTotales] = useState('30');
+
+  // Estados solicitudes empleado
+  const [empFechaInicio, setEmpFechaInicio] = useState('');
+  const [empFechaFin, setEmpFechaFin] = useState('');
+  const [empTipoAusencia, setEmpTipoAusencia] = useState('Vacaciones');
+
+  // Estados control admin
+  const [idSeleccionadoModificar, setIdSeleccionadoModificar] = useState('');
+  const [nuevoUserAdmin, setNuevoUserAdmin] = useState('');
+  const [nuevoPassAdmin, setNuevoPassAdmin] = useState('');
+  const [diasTotalesAdmin, setDiasTotalesAdmin] = useState('30');
+  const [adminTipoVacacion, setAdminTipoVacacion] = useState('Vacaciones');
+  const [adminFechaInicio, setAdminFechaInicio] = useState('');
+  const [adminFechaFin, setAdminFechaFin] = useState('');
+
+  const [guardiasAnuales, setGuardiasAnuales] = useState({});
+  const [usuarioLogueado, setUsuarioLogueado] = useState(null); 
+  const [inputUsuario, setInputUsuario] = useState('');
+  const [inputContraseña, setInputContraseña] = useState('');
+  const [mesActual, setMesActual] = useState(new Date().getMonth()); 
+
+  // ==========================================================
+  // CALENDARIO DE FESTIVOS VALENCIA / ESPAÑA 2026
+  // ==========================================================
+  const festivosBase = {
+    '01-01': { nombre: 'Año Nuevo', tipo: 'Nacional', icono: '🇪🇸' },
+    '01-06': { nombre: 'Reyes Magos', tipo: 'Nacional', icono: '🇪🇸' },
+    '01-22': { nombre: 'San Vicente Mártir', tipo: 'Local Valencia', icono: '🦇' },
+    '03-19': { nombre: 'San José', tipo: 'Autonómico', icono: '🔥' }, 
+    '04-02': { nombre: 'Jueves Santo', tipo: 'Nacional', icono: '🇪🇸' },
+    '04-03': { nombre: 'Viernes Santo', tipo: 'Nacional', icono: '🇪🇸' },
+    '04-06': { nombre: 'Lunes de Pascua', tipo: 'Autonómico', icono: '🍊' },
+    '05-01': { nombre: 'Trabajador', tipo: 'Nacional', icono: '🇪🇸' },
+    '06-24': { nombre: 'San Juan', tipo: 'Autonómico', icono: '🍊' },
+    '08-15': { nombre: 'Asunción de la Virgen', tipo: 'Nacional', icono: '🇪🇸' },
+    '10-09': { nombre: 'Día de la Comunidad Valenciana', tipo: 'Autonómico', icono: '🍊' },
+    '10-12': { nombre: 'Fiesta Nacional de España', tipo: 'Nacional', icono: '🇪🇸' },
+    '11-01': { nombre: 'Todos los Santos', tipo: 'Nacional', icono: '🇪🇸' },
+    '12-06': { nombre: 'Día de la Constitución', tipo: 'Nacional', icono: '🇪🇸' },
+    '12-08': { nombre: 'Inmaculada Concepción', tipo: 'Nacional', icono: '🇪🇸' },
+    '12-25': { nombre: 'Navidad', tipo: 'Nacional', icono: '🇪🇸' }
+  };
+
+  const festivosDelAnio = {};
+  Object.keys(festivosBase).forEach(mesDia => {
+    festivosDelAnio[`${anioActual}-${mesDia}`] = festivosBase[mesDia];
+  });
+
+  const calcularDiasEntreFechas = (inicioStr, finStr) => {
+    const fin = new Date(finStr);
+    const inicio = new Date(inicioStr);
+    if (isNaN(fin) || isNaN(inicio) || fin < inicio) return 0;
+    const diffTime = Math.abs(fin - inicio);
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  const comprobarSiEstaDeVacaciones = (fechaISO, tecnicoId, listaPeticiones = peticiones) => {
+    const fechaActual = new Date(fechaISO);
+    return listaPeticiones.some(p => {
+      if (p.tecnicoId === tecnicoId && p.estado === 'Aprobado') {
+        const dInicio = new Date(p.inicio);
+        const dFin = new Date(p.fin);
+        return fechaActual >= dInicio && fechaActual <= dFin;
+      }
+      return false;
+    });
+  };
+
+  const calcularImporteMensualGuardia = (username, mesInd) => {
+    let totalAcumulado = 0;
+    let diasLaborables = 0;
+    let diasFestivosFinde = 0;
+
+    const numDias = new Date(anioActual, mesInd + 1, 0).getDate();
+    for (let dia = 1; dia <= numDias; dia++) {
+      const mesStr = String(mesInd + 1).padStart(2, '0');
+      const diaStr = String(dia).padStart(2, '0');
+      const fechaClave = `${anioActual}-${mesStr}-${diaStr}`;
+      
+      if (guardiasAnuales[fechaClave] === username) {
+        const deVacaciones = comprobarSiEstaDeVacaciones(fechaClave, username, peticiones);
+        if (!deVacaciones) {
+          const fechaObj = new Date(anioActual, mesInd, dia);
+          const esFinde = fechaObj.getDay() === 0 || fechaObj.getDay() === 6;
+          const esFestivo = !!festivosDelAnio[fechaClave];
+
+          if (esFinde || esFestivo) {
+            totalAcumulado += parseInt(precioFestivoFinde) || 70;
+            diasFestivosFinde++;
+          } else {
+            totalAcumulado += parseInt(precioLaborable) || 28;
+            diasLaborables++;
+          }
+        }
+      }
+    }
+    return { totalAcumulado, diasLaborables, diasFestivosFinde };
+  };
+
+  // =========================================================================
+  // 🔄 NUEVO ALGORITMO: GENERACIÓN INTELIGENTE EQUITATIVA DE FESTIVOS
+  // =========================================================================
+  const generarCalendarioInteligenteEquitativo = () => {
+    let nuevoCuadrante = {};
+    const listaTecnicos = usuariosDB.filter(u => u.activo);
+    if (listaTecnicos.length === 0) return;
+
+    // Inicializamos el contador de festivos/fines de semana realizados por cada técnico
+    let contadorFestivos = {};
+    listaTecnicos.forEach(t => {
+      contadorFestivos[t.usuario] = 0;
+    });
+
+    // Pauta de rotación normal de base secuencial de técnicos para días laborables
+    let indiceRotacionNormal = 0;
+
+    let fechaBucle = new Date(anioActual, 0, 1);
+    while (fechaBucle.getFullYear() === anioActual) {
+      const currentMes = fechaBucle.getMonth();
+      const currentDia = fechaBucle.getDate();
+      
+      const m = String(currentMes + 1).padStart(2, '0');
+      const d = String(currentDia).padStart(2, '0');
+      const isoKey = `${anioActual}-${m}-${d}`;
+
+      const esFinde = fechaBucle.getDay() === 0 || fechaBucle.getDay() === 6;
+      const esFestivoOca = !!festivosDelAnio[isoKey];
+
+      if (esFinde || esFestivoOca) {
+        // REPARTO EQUITATIVO: Buscamos qué técnico lleva MENOS festivos acumulados hasta el momento
+        let tecnicoElegido = listaTecnicos[0].usuario;
+        let minFestivos = contadorFestivos[tecnicoElegido];
+
+        for (let i = 1; i < listaTecnicos.length; i++) {
+          const uId = listaTecnicos[i].usuario;
+          if (contadorFestivos[uId] < minFestivos) {
+            minFestivos = contadorFestivos[uId];
+            tecnicoElegido = uId;
+          }
+        }
+
+        nuevoCuadrante[isoKey] = tecnicoElegido;
+        contadorFestivos[tecnicoElegido] += 1; // Sumamos el festivo realizado al contador
+      } else {
+        // Día laborable estándar: Sigue la cola secuencial normal para no sobrecargar
+        const tecNormal = listaTecnicos[indiceRotacionNormal % listaTecnicos.length].usuario;
+        nuevoCuadrante[isoKey] = tecNormal;
+        indiceRotacionNormal++;
+      }
+
+      fechaBucle.setDate(fechaBucle.getDate() + 1);
+    }
+
+    setGuardiasAnuales(nuevoCuadrante);
+    Alert.alert("Cuadrante Optimizado", "Se han redistribuido las guardias equilibrando matemáticamente los festivos.");
+  };
+
+  const generarCalendarioAnualBase = (listaUsuariosModerna = usuariosDB) => {
+    let nuevoCuadrante = {};
+    let fechaBucle = new Date(anioActual, 0, 1);
+    
+    // Lista secuencial básica por defecto si no se optimiza
+    while (fechaBucle.getFullYear() === anioActual) {
+      const currentMes = fechaBucle.getMonth();
+      const currentDia = fechaBucle.getDate();
+      const m = String(currentMes + 1).padStart(2, '0');
+      const d = String(currentDia).padStart(2, '0');
+      const isoKey = `${anioActual}-${m}-${d}`;
+
+      // Por defecto asignamos rotativamente o un valor base seguro
+      const totalTecs = listaUsuariosModerna.filter(u => u.rol === 'empleado');
+      if (totalTecs.length > 0) {
+        const index = currentDia % totalTecs.length;
+        nuevoCuadrante[isoKey] = totalTecs[index].usuario;
+      } else {
+        nuevoCuadrante[isoKey] = 'J.Carlos';
+      }
+      fechaBucle.setDate(fechaBucle.getDate() + 1);
+    }
+    return nuevoCuadrante;
+  };
+
+  const calcularContadoresVacaciones = (username, listaUsuarios = usuariosDB, listaPeticiones = peticiones) => {
+    const usuario = listaUsuarios.find(u => u.usuario === username);
+    const totales = usuario ? Number(usuario.dias_totales || 30) : 30;
+    
+    const disfrutados = listaPeticiones
+      .filter(p => p.tecnicoId === username && p.estado === 'Aprobado')
+      .reduce((sum, p) => sum + calcularDiasEntreFechas(p.inicio, p.fin), 0);
+
+    return { totales, disfrutados, restantes: totales - disfrutados };
+  };
+
+  const cargarDatosDesdeServidor = async () => {
+    try {
+      setCargandoDatosGlobales(true);
+      const datosUsuarios = await supabaseFetch('usuarios?select=*');
+      setUsuariosDB(datosUsuarios);
+      
+      let datosVacaciones = [];
+      try {
+        datosVacaciones = await supabaseFetch('vacaciones?select=*');
+        setPeticiones(datosVacaciones);
+      } catch (errVac) {
+        console.log("Aviso: Tabla vacaciones vacía.");
+      }
+
+      const calendarioInicial = generarCalendarioAnualBase(datosUsuarios);
+      setGuardiasAnuales(calendarioInicial);
+
+      const datosSesionLocal = await AsyncStorage.getItem('@sesion_guardia_v2');
+      if (datosSesionLocal) {
+        const sesionParseada = JSON.parse(datosSesionLocal);
+        const fresco = datosUsuarios.find(u => u.usuario === sesionParseada.usuario);
+        setUsuarioLogueado(fresco || sesionParseada);
+      }
+    } catch (e) {
+      Alert.alert("Error de Sincronización", "Error al descargar datos de Supabase.");
+    } finally {
+      setCargandoDatosGlobales(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarDatosDesdeServidor();
+  }, []);
+
+  const solicitarDiasEmpleado = async () => {
+    if (!empFechaInicio.trim() || !empFechaFin.trim()) {
+      Alert.alert("Campos Vacíos", "Especifica la fecha de inicio y fin (AAAA-MM-DD).");
+      return;
+    }
+
+    const nuevaPeticion = {
+      tecnicoId: usuarioLogueado.usuario,
+      nombre: usuarioLogueado.nombre,
+      tipo: empTipoAusencia,
+      inicio: empFechaInicio.trim(),
+      fin: empFechaFin.trim(),
+      estado: 'Pendiente'
+    };
+
+    try {
+      await supabaseFetch('vacaciones', { method: 'POST', body: JSON.stringify(nuevaPeticion) });
+      Alert.alert("Solicitud Enviada", "Tu petición ha sido enviada al Administrador.");
+      setEmpFechaInicio('');
+      setEmpFechaFin('');
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert("Error de Envío", "No se pudo conectar con el servidor.");
+    }
+  };
+
+  const registrarNuevoTecnico = async () => {
+    if (!nuevoNombreTecnico.trim() || !nuevoUserTecnico.trim() || !nuevoPassTecnico.trim()) {
+      Alert.alert('Campos Incompletos', 'Completa los datos del nuevo técnico.');
+      return;
+    }
+
+    const nuevoObjetoTecnico = {
+      nombre: nuevoNombreTecnico.trim(),
+      usuario: nuevoUserTecnico.trim(),
+      pass: nuevoPassTecnico.trim(),
+      rol: 'empleado',
+      color: nuevoColorTecnico,
+      activo: true,
+      dias_totales: parseInt(nuevosDiasTotales) || 30
+    };
+
+    try {
+      await supabaseFetch('usuarios', { method: 'POST', body: JSON.stringify(nuevoObjetoTecnico) });
+      Alert.alert('¡Éxito!', `El técnico se ha guardado en el servidor.`);
+      cargarDatosDesdeServidor();
+      setNuevoNombreTecnico('');
+      setNuevoUserTecnico('');
+      setNuevoPassTecnico('');
+    } catch (error) {
+      Alert.alert("Error", "No se pudo añadir al usuario.");
+    }
+  };
+
+  const aplicarChangeCredenciales = async () => {
+    if (!idSeleccionadoModificar) {
+      Alert.alert('Error', 'Selecciona un técnico primero.');
+      return;
+    }
+    try {
+      await supabaseFetch(`usuarios?usuario=eq.${idSeleccionadoModificar}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          usuario: nuevoUserAdmin.trim(),
+          pass: nuevoPassAdmin.trim(),
+          dias_totales: parseInt(diasTotalesAdmin) || 30
+        })
+      });
+      Alert.alert('Éxito', 'Perfil técnico actualizado.');
+      cargarDatosDesdeServidor();
+    } catch (error) {
+      Alert.alert("Error", "No se pudo guardar la actualización.");
+    }
+  };
+
+  const iniciarSesion = async () => {
+    const userClean = inputUsuario.toLowerCase().trim();
+    const passClean = inputContraseña.trim(); 
+    
+    const usuarioEncontrado = usuariosDB.find(u => {
+      const dbUser = u.usuario ? u.usuario.toLowerCase().trim() : '';
+      const dbPass = u.pass ? u.pass.trim() : ''; 
+      return dbUser === userClean && dbPass === passClean;
+    });
+    
+    if (usuarioEncontrado) {
+      setUsuarioLogueado(usuarioEncontrado);
+      await AsyncStorage.setItem('@sesion_guardia_v2', JSON.stringify(usuarioEncontrado));
+      setInputUsuario('');
+      setInputContraseña('');
+      if (usuarioEncontrado.rol === 'admin') {
+        const primerEmp = usuariosDB.find(u => u.rol === 'empleado');
+        if (primerEmp) seleccionarTecnicoParaModificar(primerEmp.usuario, usuariosDB);
+      }
+    } else {
+      Alert.alert('Acceso Denegado', 'Credenciales incorrectas.');
+    }
+  };
+
+  const cerrarSesion = async () => {
+    await AsyncStorage.removeItem('@sesion_guardia_v2');
+    setUsuarioLogueado(null);
+  };
+
+  const seleccionarTecnicoParaModificar = (id, listaActora = usuariosDB) => {
+    setIdSeleccionadoModificar(id);
+    const empleado = listaActora.find(u => u.usuario === id);
+    if (empleado) {
+      setNuevoUserAdmin(empleado.usuario);
+      setNuevoPassAdmin(empleado.pass);
+      setDiasTotalesAdmin(String(empleado.dias_totales || 30));
+    }
+  };
+
+  const asignarVacacionDirectaAdmin = async () => {
+    if (!adminFechaInicio.trim() || !adminFechaFin.trim()) {
+      Alert.alert('Error', 'Introduce las fechas correctas.');
+      return;
+    }
+    const empleado = usuariosDB.find(u => u.usuario === idSeleccionadoModificar);
+    const nuevaAusencia = {
+      tecnicoId: idSeleccionadoModificar,
+      nombre: empleado ? empleado.nombre : 'Técnico',
+      tipo: adminTipoVacacion,
+      inicio: adminFechaInicio.trim(),
+      fin: adminFechaFin.trim(),
+      estado: 'Aprobado' 
+    };
+
+    try {
+      await supabaseFetch('vacaciones', { method: 'POST', body: JSON.stringify(nuevaAusencia) });
+      Alert.alert('Éxito', `Ausencia aprobada directamente.`);
+      setAdminFechaInicio('');
+      setAdminFechaFin('');
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo guardar la fila.');
+    }
+  };
+
+  const resolverPeticion = async (id, nuevoEstado) => {
+    try {
+      await supabaseFetch(`vacaciones?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: nuevoEstado })
+      });
+      Alert.alert('Procesado', `Solicitud marcada como: ${nuevoEstado}`);
+      cargarDatosDesdeServidor();
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo actualizar la petición.');
+    }
+  };
+
+  const obtenerDiasMes = (mes) => {
+    const primerDia = new Date(anioActual, mes, 1).getDay();
+    const diasEnBlanco = primerDia === 0 ? 6 : primerDia - 1;
+    const numDias = new Date(anioActual, mes + 1, 0).getDate();
+
+    let celdas = [];
+    for (let i = 0; i < diasEnBlanco; i++) {
+      celdas.push({ tipo: 'vacio', id: `vacio-${i}` });
+    }
+    for (let dia = 1; dia <= numDias; dia++) {
+      const mesStr = String(mes + 1).padStart(2, '0');
+      const diaStr = String(dia).padStart(2, '0');
+      const fechaClave = `${anioActual}-${mesStr}-${diaStr}`;
+      const fechaObj = new Date(anioActual, mes, dia);
+      celdas.push({ tipo: 'dia', dia, fechaClave, esFinde: fechaObj.getDay() === 0 || fechaObj.getDay() === 6 });
+    }
+    return celdas;
+  };
+
+  const celdasCalendario = obtenerDiasMes(mesActual);
+
+  const cambiarMes = (direccion) => {
+    if (direccion === 'ant' && mesActual > 0) setMesActual(mesActual - 1);
+    if (direccion === 'sig' && mesActual < 11) setMesActual(mesActual + 1);
+  };
+
+  if (cargandoDatosGlobales) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1E293B' }}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={{ color: '#FFF', marginTop: 15, fontSize: 13 }}>Sincronizando base de datos...</Text>
+      </View>
+    );
+  }
+
+  if (!usuarioLogueado) {
+    return (
+      <SafeAreaView style={styles.contenedorLogin}>
+        <View style={styles.tarjetaLogin}>
+          <Text style={styles.loginTitulo}>🔑 Acceso Cuadrante {anioActual}</Text>
+          <Text style={styles.loginSubtitulo}>Sincronizado en tiempo real</Text>
+          <Text style={styles.labelInput}>Usuario</Text>
+          <TextInput style={styles.entradaTextoLogin} placeholder="Usuario" value={inputUsuario} onChangeText={setInputUsuario} autoCapitalize="none"/>
+          <Text style={[styles.labelInput, {marginTop: 15}]}>Contraseña</Text>
+          <TextInput style={styles.entradaTextoLogin} placeholder="••••••••" secureTextEntry={true} value={inputContraseña} onChangeText={setInputContraseña} autoCapitalize="none"/>
+          <TouchableOpacity style={styles.botonLogin} onPress={iniciarSesion}>
+            <Text style={styles.textoBotonLogin}>Entrar</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================================
+  // 👑 VISTA: ADMINISTRADOR
+  // ==========================================================
+  if (usuarioLogueado.rol === 'admin') {
+    const todosLosEmpleados = usuariosDB.filter(u => u.rol === 'empleado');
+
+    return (
+      <SafeAreaView style={styles.contenedor}>
+        <View style={styles.cabeceraAdmin}>
+          <View style={{ flex: 1, paddingRight: 10 }}>
+            <Text style={styles.titulo}>👑 Panel de Control</Text>
+            <Text style={styles.subtitulo}>Admin: {usuarioLogueado.usuario}</Text>
+          </View>
+          <TouchableOpacity style={styles.botonCerrarSesion} onPress={cerrarSesion}>
+            <Text style={styles.textoBotonCerrar}>Salir</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.cuerpo}>
+          
+          {/* Tarifas Editables + BOTÓN GENERAR GUARDIA INTELIGENTE */}
+          <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1.5 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#10B981' }]}>💰 Tarifas de Guardia y Generación</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Laborable (€)</Text>
+                <TextInput style={styles.entradaTexto} keyboardType="numeric" value={precioLaborable} onChangeText={setPrecioLaborable}/>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Festivo/Finde (€)</Text>
+                <TextInput style={styles.entradaTexto} keyboardType="numeric" value={precioFestivoFinde} onChangeText={setPrecioFestivoFinde}/>
+              </View>
+            </View>
+            
+            {/* SOLUCIÓN: Botón Inteligente para evitar repetición de festivos */}
+            <TouchableOpacity style={styles.botonInteligente} onPress={generarCalendarioInteligenteEquitativo}>
+              <Text style={styles.textoBotonInteligente}>🔄 Generar Cuadrante Inteligente (Festivos Equitativos)</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Balance de Vacaciones */}
+          <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#059669' }]}>📊 Balance de Vacaciones del Equipo</Text>
+            <View style={{ marginTop: 4 }}>
+              {todosLosEmpleados.map((emp) => {
+                const con = calcularContadoresVacaciones(emp.usuario, usuariosDB, peticiones);
+                return (
+                  <View key={emp.usuario} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0', alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '500', color: '#1E293B', fontSize: 13 }}>👤 {emp.nombre}</Text>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <Text style={{ fontSize: 12 }}>Asignados: <Text style={{ fontWeight: 'bold' }}>{con.totales}</Text></Text>
+                      <Text style={{ fontSize: 12, color: '#3B82F6' }}>Gastados: <Text style={{ fontWeight: 'bold' }}>{con.disfrutados}</Text></Text>
+                      <Text style={{ fontSize: 12, color: '#10B981' }}>Disponibles: <Text style={{ fontWeight: 'bold' }}>{con.restantes}</Text></Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Alta de Técnicos */}
+          <View style={[styles.tarjeta, { borderColor: '#8B5CF6', borderWidth: 1.5 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#7C3AED' }]}>➕ Registrar Alta de Nuevo Técnico</Text>
+            <Text style={styles.labelInput}>Nombre Completo</Text>
+            <TextInput style={styles.entradaTexto} placeholder="Ej: Carlos Gómez" value={nuevoNombreTecnico} onChangeText={setNuevoNombreTecnico}/>
+            
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Usuario Login</Text>
+                <TextInput style={styles.entradaTexto} value={nuevoUserTecnico} onChangeText={setNuevoUserTecnico} autoCapitalize="none"/>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labelInput}>Contraseña</Text>
+                <TextInput style={styles.entradaTexto} value={nuevoPassTecnico} onChangeText={setNuevoPassTecnico} autoCapitalize="none"/>
+              </View>
+            </View>
+            <Text style={styles.labelInput}>Días Totales Iniciales</Text>
+            <TextInput style={styles.entradaTexto} keyboardType="numeric" value={nuevosDiasTotales} onChangeText={setNuevosDiasTotales}/>
+
+            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#8B5CF6' }]} onPress={registrarNuevoTecnico}>
+              <Text style={styles.textoBotonEnviar}>💾 Guardar en Servidor</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Buzón de Solicitudes */}
+          <View style={[styles.tarjeta, { borderColor: '#10B981', borderWidth: 1.5 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#059669' }]}>📌 Solicitudes Recibidas (Pendientes)</Text>
+            {peticiones.filter(p => p.estado === 'Pendiente').length === 0 ? (
+              <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', padding: 10 }}>No hay peticiones nuevas.</Text>
+            ) : (
+              peticiones.filter(p => p.estado === 'Pendiente').map((pet) => (
+                <View key={pet.id} style={styles.contenedorItemPeticion}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.peticionNombre}>{pet.nombre} ({pet.tipo})</Text>
+                    <Text style={styles.peticionFechas}>📅 {pet.inicio} al {pet.fin}</Text>
+                    <Text style={{ fontSize: 11, color: '#64748B' }}>Días a restar: {calcularDiasEntreFechas(pet.inicio, pet.fin)}</Text>
+                  </View>
+                  <View style={styles.bloqueAccionesPeticion}>
+                    <TouchableOpacity style={[styles.botonAccionMini, { backgroundColor: '#10B981' }]} onPress={() => resolverPeticion(pet.id, 'Aprobado')}>
+                      <Text style={styles.textoBotonMini}>✓</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.botonAccionMini, { backgroundColor: '#EF4444', marginLeft: 6 }]} onPress={() => resolverPeticion(pet.id, 'Rechazado')}>
+                      <Text style={styles.textoBotonMini}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+
+          {/* Gestión de Credenciales */}
+          <View style={[styles.tarjeta, { borderColor: '#6366F1', borderWidth: 1.5 }]}>
+            <Text style={[styles.tituloSeccion, { color: '#4F46E5' }]}>⚙️ Editar Credenciales y Vacaciones Directas</Text>
+            <View style={styles.grupoBotonesGridVertical}>
+              {todosLosEmpleados.map((emp) => (
+                <TouchableOpacity 
+                  key={emp.usuario} 
+                  style={[styles.botonSelectorGrande, idSeleccionadoModificar === emp.usuario && { backgroundColor: '#6366F1' }]} 
+                  onPress={() => seleccionarTecnicoParaModificar(emp.usuario)}
+                >
+                  <Text style={[styles.textoSelectorMini, idSeleccionadoModificar === emp.usuario && { color: '#FFF' }]}>
+                    👤 {emp.nombre}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.labelInput, {marginTop: 10}]}>Editar Usuario Login</Text>
+            <TextInput style={styles.entradaTexto} value={nuevoUserAdmin} onChangeText={setNuevoUserAdmin} autoCapitalize="none"/>
+            <Text style={styles.labelInput}>Editar Contraseña</Text>
+            <TextInput style={styles.entradaTexto} value={nuevoPassAdmin} onChangeText={setNuevoPassAdmin} autoCapitalize="none"/>
+            <Text style={styles.labelInput}>Modificar Asignación Total Días</Text>
+            <TextInput style={styles.entradaTexto} keyboardType="numeric" value={diasTotalesAdmin} onChangeText={setDiasTotalesAdmin}/>
+
+            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#6366F1' }]} onPress={aplicarChangeCredenciales}>
+              <Text style={styles.textoBotonEnviar}>💾 Actualizar Técnico</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 1, backgroundColor: '#E2E8F0', marginVertical: 12 }} />
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#4F46E5' }}>🌴 Forzar Periodo Aprobado:</Text>
+            
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+              <View style={{ flex: 1 }}>
+                <TextInput style={styles.entradaTexto} placeholder="Inicio: AAAA-MM-DD" value={adminFechaInicio} onChangeText={setAdminFechaInicio}/>
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput style={styles.entradaTexto} placeholder="Fin: AAAA-MM-DD" value={adminFechaFin} onChangeText={setAdminFechaFin}/>
+              </View>
+            </View>
+            
+            <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#10B981' }]} onPress={asignarVacacionDirectaAdmin}>
+              <Text style={styles.textoBotonEnviar}>🌴 Asignar Periodo</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* SOLUCIÓN AL CALENDARIO (Admin) - Muestra correctamente quién está de guardia */}
+          <View style={styles.tarjeta}>
+            <Text style={styles.tituloSeccion}>📅 Vista Global de Cuadrante (Verificando Vacaciones)</Text>
+            <View style={styles.selectorMesContenedor}>
+              <TouchableOpacity onPress={() => cambiarMes('ant')} disabled={mesActual === 0}><Text style={styles.flechaSelector}>◀</Text></TouchableOpacity>
+              <Text style={styles.tituloMes}>{meses[mesActual]} {anioActual}</Text>
+              <TouchableOpacity onPress={() => cambiarMes('sig')} disabled={mesActual === 11}><Text style={styles.flechaSelector}>▶</Text></TouchableOpacity>
+            </View>
+
+            <View style={styles.rejillaCalendario}>
+              {celdasCalendario.map((celda, i) => {
+                if (celda.tipo === 'vacio') return <View key={`vacio-${i}`} style={styles.celdaVacia} />;
+                
+                let compId = guardiasAnuales[celda.fechaClave];
+                let estaDeVacaciones = comprobarSiEstaDeVacaciones(celda.fechaClave, compId, peticiones);
+                
+                // FIX: Busca al técnico en la lista completa (incluyendo administradores como J.Carlos)
+                let compData = usuariosDB.find(c => c.usuario === compId);
+                
+                const infoFestivo = festivosDelAnio[celda.fechaClave];
+                const esFestivoOFinde = celda.esFinde || !!infoFestivo;
+                const costeDia = esFestivoOFinde ? precioFestivoFinde : precioLaborable;
+
+                return (
+                  <View key={celda.fechaClave} style={[styles.celdaDia, esFestivoOFinde && { backgroundColor: '#FFF1F2' }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[styles.numeroDia, esFestivoOFinde && { fontWeight: 'bold', color: '#EF4444' }]}>
+                        {celda.dia} {infoFestivo ? infoFestivo.icono : ''}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 7, color: esFestivoOFinde ? '#E11D48' : '#10B981', alignSelf: 'center', fontWeight: 'bold' }}>{costeDia}€</Text>
+                    
+                    <View style={[styles.indicadorGuardia, { backgroundColor: estaDeVacaciones ? '#94A3B8' : (compData ? compData.color : '#475569') }]}>
+                      <Text style={styles.textoIndicador} numberOfLines={1}>
+                        {estaDeVacaciones ? 'PALMA' : (compData ? compData.nombre.split(' ')[0] : (compId || 'Libre'))}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ==========================================================
+  // 👤 VISTA: EMPLEADO / TÉCNICO
+  // ==========================================================
+  const misTecnicos = usuariosDB.filter(u => u.rol === 'empleado');
+  const contadoresPropios = calcularContadoresVacaciones(usuarioLogueado.usuario, usuariosDB, peticiones);
+  const desgloseFinanciero = calcularImporteMensualGuardia(usuarioLogueado.usuario, mesActual);
+
+  return (
+    <SafeAreaView style={styles.contenedor}>
+      <View style={styles.cabecera}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.titulo}>👋 Hola, {usuarioLogueado.nombre}</Text>
+          <Text style={{ fontSize: 11, color: '#475569', fontWeight: '500' }}>Técnico de Guardia Activo</Text>
+        </View>
+        <TouchableOpacity style={styles.botonCerrarSesion} onPress={cerrarSesion}>
+          <Text style={styles.textoBotonCerrar}>Salir</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.cuerpo}>
+        {/* Marcador Financiero */}
+        <View style={[styles.tarjeta, { backgroundColor: '#0F172A', borderColor: '#10B981', borderWidth: 1 }]}>
+          <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#10B981', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            💰 Guardias Estimadas de {meses[mesActual]}
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, alignItems: 'center' }}>
+            <View>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#FFF' }}>{desgloseFinanciero.totalAcumulado} €</Text>
+              <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                Laborables: {desgloseFinanciero.diasLaborables} | Festivos/Finde: {desgloseFinanciero.diasFestivosFinde}
+              </Text>
+            </View>
+            <View style={{ backgroundColor: '#1E293B', padding: 10, borderRadius: 10 }}>
+              <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>{anioActual}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Marcadores Vacaciones */}
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#E2E8F0' }]}>
+            <Text style={styles.labelContadorMini}>Asignados</Text>
+            <Text style={styles.cifraContadorMini}>{contadoresPropios.totales}</Text>
+          </View>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#DBEAFE' }]}>
+            <Text style={[styles.labelContadorMini, { color: '#1E40AF' }]}>Disfrutados</Text>
+            <Text style={[styles.cifraContadorMini, { color: '#1E40AF' }]}>{contadoresPropios.disfrutados}</Text>
+          </View>
+          <View style={[styles.miniTarjetaContador, { flex: 1, backgroundColor: '#D1FAE5' }]}>
+            <Text style={[styles.labelContadorMini, { color: '#065F46' }]}>Quedan</Text>
+            <Text style={[styles.cifraContadorMini, { color: '#065F46' }]}>{contadoresPropios.restantes}</Text>
+          </View>
+        </View>
+
+        {/* Solicitudes de Vacaciones */}
+        <View style={[styles.tarjeta, { borderColor: '#3B82F6', borderWidth: 1 }]}>
+          <Text style={[styles.tituloSeccion, { color: '#1D4ED8' }]}>✉️ Tramitar Vacaciones o Días</Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginVertical: 6 }}>
+            {['Vacaciones', 'Día Libre'].map((tipo) => (
+              <TouchableOpacity key={tipo} style={[styles.botonSelectorGrande, { flex: 1 }, empTipoAusencia === tipo && { backgroundColor: '#3B82F6' }]} onPress={() => setEmpTipoAusencia(tipo)}>
+                <Text style={[styles.textoSelectorMini, { textAlign: 'center' }, empTipoAusencia === tipo && { color: '#FFF' }]}>{tipo}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <View style={{ flex: 1 }}>
+              <TextInput style={styles.entradaTexto} placeholder="Inicio: AAAA-MM-DD" value={empFechaInicio} onChangeText={setEmpFechaInicio}/>
+            </View>
+            <View style={{ flex: 1 }}>
+              <TextInput style={styles.entradaTexto} placeholder="Fin: AAAA-MM-DD" value={empFechaFin} onChangeText={setEmpFechaFin}/>
+            </View>
+          </View>
+          
+          <TouchableOpacity style={[styles.botonEnviar, { backgroundColor: '#3B82F6' }]} onPress={solicitarDiasEmpleado}>
+            <Text style={styles.textoBotonEnviar}>🚀 Enviar Solicitud Remota</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Historial Propio */}
+        <View style={styles.tarjeta}>
+          <Text style={styles.tituloSeccion}>📋 Mis Solicitudes de Ausencia</Text>
+          {peticiones.filter(p => p.tecnicoId === usuarioLogueado.usuario).map((pet, ind) => (
+            <View key={ind} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#F1F5F9' }}>
+              <View>
+                <Text style={{ fontWeight: 'bold', fontSize: 13 }}>{pet.tipo} ({calcularDiasEntreFechas(pet.inicio, pet.fin)} días)</Text>
+                <Text style={{ fontSize: 11, color: '#64748B' }}>📅 {pet.inicio} al {pet.fin}</Text>
+              </View>
+              <Text style={{ fontWeight: 'bold', fontSize: 12, color: pet.estado === 'Aprobado' ? '#10B981' : '#F59E0B' }}>{pet.estado}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Calendario Empleado */}
+        <View style={styles.tarjeta}>
+          <View style={styles.selectorMesContenedor}>
+            <TouchableOpacity onPress={() => cambiarMes('ant')} disabled={mesActual === 0}><Text style={styles.flechaSelector}>◀</Text></TouchableOpacity>
+            <Text style={styles.tituloMes}>{meses[mesActual]} {anioActual}</Text>
+            <TouchableOpacity onPress={() => cambiarMes('sig')} disabled={mesActual === 11}><Text style={styles.flechaSelector}>▶</Text></TouchableOpacity>
+          </View>
+
+          <View style={styles.rejillaCalendario}>
+            {celdasCalendario.map((celda, i) => {
+              if (celda.tipo === 'vacio') return <View key={`vacio-${i}`} style={styles.celdaVacia} />;
+
+              const compId = guardiasAnuales[celda.fechaClave];
+              let estaDeVacaciones = comprobarSiEstaDeVacaciones(celda.fechaClave, compId, peticiones);
+              const compData = usuariosDB.find(c => c.usuario === compId);
+              
+              const infoFestivo = festivosDelAnio[celda.fechaClave];
+              const esFestivoOFinde = celda.esFinde || !!infoFestivo;
+              const costeDia = esFestivoOFinde ? precioFestivoFinde : precioLaborable;
+
+              return (
+                <View key={celda.fechaClave} style={[styles.celdaDia, esFestivoOFinde && { backgroundColor: '#FFF1F2' }]}>
+                  <Text style={[styles.numeroDia, esFestivoOFinde && { fontWeight: 'bold', color: '#EF4444' }]}>
+                    {celda.dia} {infoFestivo ? infoFestivo.icono : ''}
+                  </Text>
+                  <Text style={{ fontSize: 7, color: esFestivoOFinde ? '#E11D48' : '#10B981', textAlign: 'center', fontWeight: 'bold' }}>{costeDia}€</Text>
+                  
+                  <View style={[styles.indicadorGuardia, { backgroundColor: estaDeVacaciones ? '#94A3B8' : (compData ? compData.color : '#475569') }]}>
+                    <Text style={styles.textoIndicador} numberOfLines={1}>
+                      {estaDeVacaciones ? 'PALMA' : (compData ? compData.nombre.split(' ')[0] : (compId || 'Libre'))}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// ==========================================
+// 🎨 DISEÑO GRÁFICO (STYLING)
+// ==========================================
+const styles = StyleSheet.create({
+  contenedor: { flex: 1, backgroundColor: '#F1F5F9' },
+  contenedorLogin: { flex: 1, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  tarjetaLogin: { backgroundColor: '#FFF', width: '100%', maxWidth: 350, padding: 24, borderRadius: 16 },
+  loginTitulo: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', textAlign: 'center' },
+  loginSubtitulo: { fontSize: 12, color: '#64748B', textAlign: 'center', marginBottom: 20 },
+  cabecera: { backgroundColor: '#FFF', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cabeceraAdmin: { backgroundColor: '#FFF', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: '#E2E8F0' },
+  titulo: { fontSize: 17, fontWeight: 'bold', color: '#0F172A' },
+  subtitulo: { fontSize: 11, color: '#64748B' },
+  botonCerrarSesion: { backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  textoBotonCerrar: { color: '#64748B', fontSize: 12, fontWeight: 'bold' },
+  cuerpo: { flex: 1, padding: 10 },
+  tarjeta: { backgroundColor: '#FFF', padding: 14, borderRadius: 12, marginBottom: 10 },
+  tituloSeccion: { fontSize: 14, fontWeight: 'bold', color: '#1E293B', marginBottom: 10 },
+  labelInput: { fontSize: 11, fontWeight: '700', color: '#475569', marginBottom: 2 },
+  entradaTexto: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', padding: 8, borderRadius: 8, fontSize: 11, marginBottom: 8, color: '#000' },
+  entradaTextoLogin: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#CBD5E1', padding: 12, borderRadius: 10, fontSize: 14 },
+  botonLogin: { backgroundColor: '#10B981', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 15 },
+  textoBotonLogin: { color: '#FFF', fontWeight: 'bold' },
+  botonEnviar: { backgroundColor: '#10B981', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 4 },
+  textoBotonEnviar: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
+  botonInteligente: { backgroundColor: '#10B981', padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 5 },
+  textoBotonInteligente: { color: '#FFF', fontWeight: 'bold', fontSize: 12 },
+  contenedorItemPeticion: { backgroundColor: '#F8FAFC', padding: 10, borderRadius: 8, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  peticionNombre: { fontSize: 13, fontWeight: 'bold', color: '#1E293B' },
+  peticionFechas: { fontSize: 12, color: '#475569' },
+  bloqueAccionesPeticion: { flexDirection: 'row' },
+  botonAccionMini: { width: 32, height: 32, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+  textoBotonMini: { color: '#FFF', fontWeight: 'bold' },
+  grupoBotonesGridVertical: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 4 },
+  botonSelectorGrande: { backgroundColor: '#F1F5F9', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  textoSelectorMini: { fontSize: 12, color: '#475569' },
+  selectorMesContenedor: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  flechaSelector: { fontSize: 18, color: '#1E293B', paddingHorizontal: 10 },
+  tituloMes: { fontSize: 15, fontWeight: 'bold', color: '#1E293B' },
+  rejillaCalendario: { flexDirection: 'row', flexWrap: 'wrap' },
+  celdaDia: { width: '14.28%', height: 54, borderWidth: 0.2, borderColor: '#E2E8F0', padding: 2, justifyContent: 'space-between' },
+  celdaVacia: { width: '14.28%', height: 54 },
+  numeroDia: { fontSize: 10, color: '#64748B' },
+  indicadorGuardia: { borderRadius: 4, paddingVertical: 2, paddingHorizontal: 1, alignItems: 'center' },
+  textoIndicador: { color: '#FFF', fontSize: 8, fontWeight: 'bold' },
+  miniTarjetaContador: { padding: 10, borderRadius: 10, alignItems: 'center' },
+  labelContadorMini: { fontSize: 10, fontWeight: 'bold', color: '#475569' },
+  cifraContadorMini: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginTop: 2 }
 });

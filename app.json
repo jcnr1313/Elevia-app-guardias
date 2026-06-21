@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "ELEVIAGuardias",
-    "slug": "mi-app-guardias",
+    "slug": "elevia-guardias-nueva",
+    "owner": "juancanr",
     "version": "1.0.0",
     "icon": "./icon.png",
     "android": {
@@ -9,15 +10,12 @@
         "foregroundImage": "./icon.png",
         "backgroundColor": "#1E293B"
       },
-      "package": "com.usuario.miappguardias"
+      "package": "com.usuario.eleviaguardiasnueva"
     },
     "extra": {
       "eas": {
-        "projectId": "7777d4c4-87fd-4951-ab03-8eae4e7d78c2"
+        "projectId": "27e88202-f1f6-4d29-a2a7-e6c4c8407d40"
       }
-    },
-    "plugins": [
-      "expo-font"
-    ]
+    }
   }
 }
