@@ -872,9 +872,7 @@ const styles = StyleSheet.create({
   miniTarjetaContador: { padding: 10, borderRadius: 10, alignItems: 'center' },
   labelContadorMini: { fontSize: 10, fontWeight: 'bold', color: '#475569' },
   cifraContadorMini: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginTop: 2 }
-});import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+});
 
 // ==========================================
 // CONFIGURACIÓN DE TU SERVIDOR EN LA NUBE
