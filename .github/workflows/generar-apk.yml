@@ -18,7 +18,7 @@ jobs:
       - name: 🏗️ Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20 # <--- Cambiado de 18 a 20 para dar soporte a .toReversed()
+          node-version: 20
           cache: 'npm'
 
       - name: 📦 Instalar dependencias JS
@@ -33,15 +33,12 @@ jobs:
       - name: 🔑 Dar permisos a Gradle
         run: chmod +x android/gradlew
 
-      # Compilamos en modo Release para empaquetar el JS dentro del APK
+      # Forzamos a Gradle y al empaquetador a usar el entorno de Node 20 activo
       - name: 🤖 Compilar APK Nativo
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           cd android
+          ./gradlew clean
           ./gradlew assembleRelease
-
-      - name: 📦 Guardar APK para descargar
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 7
