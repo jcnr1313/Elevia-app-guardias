@@ -875,20 +875,7 @@ const styles = StyleSheet.create({
 });
 
 // ==========================================
-// CONFIGURACIÓN DE TU SERVIDOR EN LA NUBE
-// ==========================================
-const SUPABASE_URL = "https://wzgoimvoxnnjaytmlpff.supabase.co"; 
-const SUPABASE_ANON_KEY = "sb_publishable_wqksW-E9AUDHJdVG1_VqWw_dCyBrvvZ"; 
 
-const supabaseFetch = async (endpoint, options = {}) => {
-  const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
-  const headers = {
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
-    ...options.headers
-  };
   
   try {
     const response = await fetch(url, { ...options, headers });
